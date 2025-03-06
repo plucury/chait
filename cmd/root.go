@@ -11,136 +11,116 @@ import (
 	"github.com/chzyer/readline"
 
 	"github.com/plucury/chait/api"
+	"github.com/plucury/chait/api/provider"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
 
 var cfgFile string
 
+// Version represents the current version of the application
+const Version = "0.0.1"
+
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
 	Use:   "chait",
-	Short: "A command-line tool",
-	Long: `A command-line tool built with Cobra.
-This tool allows you to manage configurations stored in ~/.config/chait/config.json.`,
-	Run: func(cmd *cobra.Command, args []string) {
-		// 检查是否显示可用的 provider 列表
-		if showProviders {
-			// 获取所有可用的 provider 名称
-			providerNames := api.GetAvailableProviders()
-
-			// 加载所有 provider 的配置
-			for _, name := range providerNames {
-				providerConfig := viper.GetStringMap(fmt.Sprintf("providers.%s", name))
-
-				// 打印调试信息
-				fmt.Printf("Loading config for provider %s\n", name)
-				fmt.Printf("Config from viper: %v\n", providerConfig)
-
-				config := make(map[string]interface{})
-				for k, v := range providerConfig {
-					config[k] = v
-				}
-
-				// 检查错误
-				if err := api.LoadProviderConfig(name, config); err != nil {
-					fmt.Printf("Error loading config for provider %s: %v\n", name, err)
-				}
-			}
-
-			// 获取所有就绪的 provider
-			readyProviders := api.GetReadyProviders()
-
-			// 显示所有 provider 信息
-			fmt.Println("Available providers:")
-			for i, name := range providerNames {
-				p, _ := api.GetProvider(name)
-				readyStatus := "not ready"
-				for _, rp := range readyProviders {
-					if rp.GetName() == name {
-						readyStatus = "ready"
-						break
-					}
-				}
-				fmt.Printf("  %d. %s (%s)\n", i+1, name, readyStatus)
-				fmt.Printf("     Default model: %s\n", p.GetDefaultModel())
-				fmt.Printf("     Available models: %s\n", strings.Join(p.GetAvailableModels(), ", "))
-			}
+	Short: "A AI chat command-line tool",
+	Long:  `A AI chat command-line tool built with Cobra. support providers: openai, deepseek`,
+	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		// Skip loading provider configurations for version command
+		if showVersion {
 			return
 		}
 
-		// 从配置中获取当前使用的 provider
+		// Load all provider configurations
+		loadProviderConfigurations()
+	},
+	Run: func(cmd *cobra.Command, args []string) {
+		// Check if we need to display the version information
+		if showVersion {
+			fmt.Printf("chait version %s\n", Version)
+			return
+		}
+
+		// Check if we need to interactively select a provider
+		if selectProvider {
+			if err := configureProvider(); err != nil {
+				fmt.Printf("Error configuring provider: %v\n", err)
+				return
+			}
+			fmt.Println("Provider configured successfully. Run 'chait' to start interactive mode.")
+			return
+		}
+
+		// Get the currently used provider from configuration
 		providerName := viper.GetString("provider")
 
-		// 如果 provider 配置为空，则提示用户选择
+		// If no provider is configured, prompt the user to select one
 		if providerName == "" {
 			fmt.Println("No provider selected. Let's choose one.")
-			// 提示用户选择并配置 provider
+			// Prompt the user to select and configure a provider
 			if err := configureProvider(); err != nil {
 				fmt.Printf("Error configuring provider: %v\n", err)
 				return
 			}
 
-			// 从配置中重新获取当前使用的 provider
+			// Get the currently used provider from configuration again
 			providerName = viper.GetString("provider")
 			if providerName == "" {
-				// 如果仍然为空，使用默认值
+				// If still empty, use the default value
 				providerName = api.DefaultProvider
 			}
 		}
 
-		// 加载 provider 配置
+		// Load provider configuration
 		providerConfig := viper.GetStringMap(fmt.Sprintf("providers.%s", providerName))
 
-		// 将 viper 配置转换为 map[string]interface{}
+		// Convert viper configuration to map[string]interface{}
 		config := make(map[string]interface{})
 		for k, v := range providerConfig {
 			config[k] = v
 		}
 
-		// 加载 provider 配置
+		// Load provider configuration
 		if err := api.LoadProviderConfig(providerName, config); err != nil {
 			fmt.Printf("Error loading provider config: %v\n", err)
 			return
 		}
 
-		// 获取所有就绪的 provider
+		// Get all ready providers
 		readyProviders := api.GetReadyProviders()
 
-		// 检查是否有可用的 provider
+		// Check if there are any available providers
 		if len(readyProviders) == 0 {
 			fmt.Println("No ready providers found. Let's configure one.")
-			// 提示用户选择并配置 provider
+			// Prompt the user to select and configure a provider
 			if err := configureProvider(); err != nil {
 				fmt.Printf("Error configuring provider: %v\n", err)
 				return
 			}
 
-			// 重新获取就绪的 provider
+			// Get ready providers again
 			readyProviders = api.GetReadyProviders()
 			if len(readyProviders) == 0 {
 				fmt.Println("Still no ready providers. Exiting.")
 
-				// 调试信息
+				// Debug information
 				fmt.Println("DEBUG: Checking provider status...")
-				providerNames := api.GetAvailableProviders()
-				for _, name := range providerNames {
-					p, exists := api.GetProvider(name)
-					if exists {
-						fmt.Printf("DEBUG: Provider %s exists, IsReady: %v, API Key set: %v\n",
-							name, p.IsReady(), p.GetAPIKey() != "")
-					}
+				providers := api.GetAvailableProviders()
+				for _, p := range providers {
+					fmt.Printf("DEBUG: Provider %s exists, IsReady: %v, API Key set: %v\n",
+						p.GetName(), p.IsReady(), p.GetAPIKey() != "")
 				}
 				return
 			}
 		}
 
-		// 获取活跃的 provider
+		// Get the active provider
 		provider := api.GetActiveProvider()
 
-		// 检查当前活跃的 provider 是否就绪
+		// Check if the current active provider is ready
 		if !provider.IsReady() {
-			// 如果当前活跃的 provider 不就绪，但有其他就绪的 provider，则切换到第一个就绪的 provider
+			// If the current active provider is not ready, but there are other ready providers, switch to the first ready provider
 			if err := api.SetActiveProvider(readyProviders[0].GetName()); err != nil {
 				fmt.Printf("Error setting active provider: %v\n", err)
 				return
@@ -149,7 +129,7 @@ This tool allows you to manage configurations stored in ~/.config/chait/config.j
 			fmt.Printf("Switched to ready provider: %s\n", provider.GetName())
 		}
 
-		// API key 已设置，进入交互环境
+		// API key is set, enter interactive mode
 		startInteractiveMode()
 	},
 }
@@ -163,270 +143,199 @@ func Execute() {
 	}
 }
 
-// 是否显示可用的 provider 列表
-var showProviders bool
+// Whether to display the version information
+var showVersion bool
 
-// configureProvider 函数提示用户选择并配置 provider
+// Whether to interactively select a provider
+var selectProvider bool
+
+// configureProvider prompts the user to select and configure a provider
 func configureProvider() error {
-	// 创建输入读取器
+	// Create an input reader
 	reader := bufio.NewReader(os.Stdin)
 
-	// 获取所有可用的 provider 名称
-	providerNames := api.GetAvailableProviders()
-	if len(providerNames) == 0 {
+	// Get all available providers
+	providers := api.GetAvailableProviders()
+	if len(providers) == 0 {
 		return fmt.Errorf("no available providers found")
 	}
 
-	// 显示可用的 provider 列表
+	// Get provider names for selection
+	var providerNames []string
+	for _, p := range providers {
+		providerNames = append(providerNames, p.GetName())
+	}
+
+	// Display the list of available providers
 	fmt.Println("Available providers:")
-	for i, name := range providerNames {
-		p, _ := api.GetProvider(name)
-		fmt.Printf("  %d. %s\n", i+1, name)
-		fmt.Printf("     Default model: %s\n", p.GetDefaultModel())
+	for i, p := range providers {
+		readyStatus := "not ready"
+		if p.IsReady() {
+			readyStatus = "ready"
+		}
+		fmt.Printf("  %d. %s (%s)\n", i+1, p.GetName(), readyStatus)
 		fmt.Printf("     Available models: %s\n", strings.Join(p.GetAvailableModels(), ", "))
 	}
 
-	// 提示用户选择 provider
+	// Prompt the user to select a provider
 	fmt.Print("\nSelect a provider (enter number): ")
 	choiceStr, err := reader.ReadString('\n')
 	if err != nil {
 		return fmt.Errorf("error reading input: %v", err)
 	}
 
-	// 处理输入
+	// Process the input
 	choiceStr = strings.TrimSpace(choiceStr)
 	choice, err := strconv.Atoi(choiceStr)
-	if err != nil || choice < 1 || choice > len(providerNames) {
+	if err != nil || choice < 1 || choice > len(providers) {
 		return fmt.Errorf("invalid choice: %v", err)
 	}
 
-	// 获取选择的 provider 名称
-	selectedProvider := providerNames[choice-1]
+	// Get the selected provider
+	selectedProvider := providers[choice-1]
+	providerName := selectedProvider.GetName()
 
-	// 设置为活跃 provider
-	if err := api.SetActiveProvider(selectedProvider); err != nil {
+	// Set as the active provider
+	if err := api.SetActiveProvider(providerName); err != nil {
 		return fmt.Errorf("error setting active provider: %v", err)
 	}
 
-	// 将选择的 provider 保存到配置文件
-	viper.Set("provider", selectedProvider)
+	// Save the selected provider to the configuration file
+	viper.Set("provider", providerName)
 
-	// 写入配置文件
+	// Write to the configuration file
 	if err := viper.WriteConfig(); err != nil {
 		fmt.Printf("Error saving provider setting: %v\n", err)
 	}
 
-	// 加载 provider 配置
-	providerConfig := viper.GetStringMap(fmt.Sprintf("providers.%s", selectedProvider))
+	// Load provider configuration
+	providerConfig := viper.GetStringMap(fmt.Sprintf("providers.%s", providerName))
 	// print config detail for debugging
 	config := make(map[string]interface{})
 	for k, v := range providerConfig {
 		config[k] = v
 	}
 
-	// 加载 provider 配置
-	if err := api.LoadProviderConfig(selectedProvider, config); err != nil {
+	// Load provider configuration
+	if err := api.LoadProviderConfig(providerName, config); err != nil {
 		return fmt.Errorf("error loading provider config: %v", err)
 	}
 
-	// 获取 provider 实例
-	provider, exists := api.GetProvider(selectedProvider)
-	if !exists {
-		return fmt.Errorf("provider %s not found", selectedProvider)
-	}
-
-	// 检查 API key 是否已设置
-	if provider.GetAPIKey() == "" {
-		// 提示用户输入 API key
-		fmt.Printf("Enter API key for %s: ", selectedProvider)
+	// Check if the API key is already set
+	if selectedProvider.GetAPIKey() == "" {
+		// Prompt the user to enter an API key
+		fmt.Printf("Enter API key for %s: ", providerName)
 		apiKeyStr, err := reader.ReadString('\n')
 		if err != nil {
 			return fmt.Errorf("error reading API key: %v", err)
 		}
 
-		// 处理输入
+		// Process the input
 		apiKey := strings.TrimSpace(apiKeyStr)
 
-		// 设置 API key
-		provider.SetAPIKey(apiKey)
+		// Set the API key
+		selectedProvider.SetAPIKey(apiKey)
 
-		// 保存 provider 配置
+		// Save provider configuration
 		config := make(map[string]interface{})
-		provider.SaveConfig(config)
+		selectedProvider.SaveConfig(config)
 
-		// 保存到 viper
+		// Save to viper
 		for k, v := range config {
-			viper.Set(fmt.Sprintf("providers.%s.%s", selectedProvider, k), v)
+			viper.Set(fmt.Sprintf("providers.%s.%s", providerName, k), v)
 		}
 
-		// 写入配置文件
+		// Write to the configuration file
 		if err := viper.WriteConfig(); err != nil {
 			return fmt.Errorf("error saving API key: %v", err)
 		}
 
-		// 重新加载配置以确保 API key 生效
-		if err := api.LoadProviderConfig(selectedProvider, config); err != nil {
+		// Reload configuration to ensure the API key takes effect
+		if err := api.LoadProviderConfig(providerName, config); err != nil {
 			return fmt.Errorf("error reloading provider config: %v", err)
 		}
 
-		fmt.Printf("%s API key set successfully!\n", selectedProvider)
+		fmt.Printf("%s API key set successfully!\n", providerName)
 	}
 
-	// 选择模型
-	availableModels := provider.GetAvailableModels()
-	if len(availableModels) > 1 {
-		// 显示可用的模型列表
-		fmt.Println("\nAvailable models:")
-		for i, model := range availableModels {
-			fmt.Printf("  %d. %s\n", i+1, model)
-		}
-
-		// 提示用户选择模型
-		fmt.Print("\nSelect a model (enter number or press Enter for default): ")
-		modelInputStr, _ := reader.ReadString('\n')
-
-		// 处理输入
-		modelInput := strings.TrimSpace(modelInputStr)
-
-		// 如果用户输入了模型选择
-		if modelInput != "" {
-			modelChoice, err := strconv.Atoi(modelInput)
-			if err != nil || modelChoice < 1 || modelChoice > len(availableModels) {
-				fmt.Println("Invalid choice, using default model.")
-			} else {
-				// 设置选择的模型
-				selectedModel := availableModels[modelChoice-1]
-				if err := provider.SetCurrentModel(selectedModel); err != nil {
-					fmt.Printf("Error setting model: %v, using default model.\n", err)
-				} else {
-					// 保存 provider 配置
-					config := make(map[string]interface{})
-					provider.SaveConfig(config)
-
-					// 保存到 viper
-					for k, v := range config {
-						viper.Set(fmt.Sprintf("providers.%s.%s", selectedProvider, k), v)
-					}
-
-					// 写入配置文件
-					if err := viper.WriteConfig(); err != nil {
-						fmt.Printf("Error saving model setting: %v\n", err)
-					}
-
-					// 重新加载配置以确保模型设置生效
-					if err := api.LoadProviderConfig(selectedProvider, config); err != nil {
-						fmt.Printf("Error reloading provider config: %v\n", err)
-					}
-
-					fmt.Printf("Model set to: %s\n", selectedModel)
-				}
-			}
-		}
-	}
-
-	// 选择温度
-	temperaturePresets := provider.GetTemperaturePresets()
-	if len(temperaturePresets) > 0 {
-		// 显示可用的温度预设列表
-		fmt.Println("\nAvailable temperature presets:")
-		for i, preset := range temperaturePresets {
-			fmt.Printf("  %d. %s (%.1f) - %s\n", i+1, preset.Name, preset.Value, preset.Description)
-		}
-
-		// 提示用户选择温度预设
-		fmt.Print("\nSelect a temperature preset (enter number or press Enter for default): ")
-		tempInputStr, _ := reader.ReadString('\n')
-
-		// 处理输入
-		tempInput := strings.TrimSpace(tempInputStr)
-
-		// 如果用户输入了温度预设选择
-		if tempInput != "" {
-			tempChoice, err := strconv.Atoi(tempInput)
-			if err != nil || tempChoice < 1 || tempChoice > len(temperaturePresets) {
-				fmt.Println("Invalid choice, using default temperature.")
-			} else {
-				// 设置选择的温度预设
-				selectedTemp := temperaturePresets[tempChoice-1].Value
-				if err := provider.SetCurrentTemperature(selectedTemp); err != nil {
-					fmt.Printf("Error setting temperature: %v, using default temperature.\n", err)
-				} else {
-					// 保存 provider 配置
-					config := make(map[string]interface{})
-					provider.SaveConfig(config)
-
-					// 保存到 viper
-					for k, v := range config {
-						viper.Set(fmt.Sprintf("providers.%s.%s", selectedProvider, k), v)
-					}
-
-					// 写入配置文件
-					if err := viper.WriteConfig(); err != nil {
-						fmt.Printf("Error saving temperature setting: %v\n", err)
-					}
-
-					// 重新加载配置以确保温度设置生效
-					if err := api.LoadProviderConfig(selectedProvider, config); err != nil {
-						fmt.Printf("Error reloading provider config: %v\n", err)
-					}
-
-					fmt.Printf("Temperature set to: %.1f\n", selectedTemp)
-				}
-			}
-		}
-	}
-
-	// 最终检查提供商是否就绪
-	if !provider.IsReady() {
-		fmt.Printf("WARNING: Provider %s is still not ready after configuration.\n", selectedProvider)
+	// Final check if the provider is ready
+	if !selectedProvider.IsReady() {
+		fmt.Printf("WARNING: Provider %s is still not ready after configuration.\n", providerName)
 		fmt.Println("Please check your API key and try again.")
 	} else {
-		fmt.Printf("Provider %s is now ready to use.\n", selectedProvider)
+		// start interactive mode
+		startInteractiveMode()
 	}
 
 	return nil
 }
 
+// loadProviderConfigurations loads all provider configurations from the config file
+func loadProviderConfigurations() {
+	// Get all available providers
+	providers := api.GetAvailableProviders()
+
+	// Load configuration for each provider
+	for _, p := range providers {
+		providerName := p.GetName()
+		providerConfig := viper.GetStringMap(fmt.Sprintf("providers.%s", providerName))
+
+		// Convert viper configuration to map[string]interface{}
+		config := make(map[string]interface{})
+		for k, v := range providerConfig {
+			config[k] = v
+		}
+
+		// Load provider configuration
+		if err := api.LoadProviderConfig(providerName, config); err != nil {
+			fmt.Printf("Warning: Error loading configuration for provider %s: %v\n", providerName, err)
+		}
+	}
+}
+
 func init() {
 	cobra.OnInitialize(initConfig)
+
+	// Add version flag
+	rootCmd.Flags().BoolVarP(&showVersion, "version", "v", false, "Display the current version of chait")
+	// Add provider selection flag
+	rootCmd.Flags().BoolVarP(&selectProvider, "provider", "p", false, "Interactively select a provider")
 
 	// Here you will define your flags and configuration settings.
 	// Cobra supports persistent flags, which, if defined here,
 	// will be global for your application.
 
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.config/chait/config.json)")
-	rootCmd.PersistentFlags().BoolVar(&showProviders, "providers", false, "show available providers")
 }
 
-// initConfig reads in config file and ENV variables if set.
-// Example config.json:
-//
-//	{
-//	  "version": "1.0.0",
-//	  "providers": {
-//	    "deepseek": {
-//	      "api_key": "your_api_key"
-//	    }
-//	  }
-//	}
-//
-// 交互模式函数
-func startInteractiveMode() {
-	// 获取活跃的 provider
-	provider := api.GetActiveProvider()
+// Interactive mode function
+// displayHelpCommands prints all available interactive mode commands
+func displayHelpCommands() {
+	fmt.Println("Available commands:")
+	fmt.Println("  :help, :h        - Show this help message")
+	fmt.Println("  :clear, :c       - Start a new conversation")
+	fmt.Println("  :model           - Switch between available models")
+	fmt.Println("  :temperature, :temp - Set the temperature parameter")
+	fmt.Println("  :provider        - Configure or switch provider")
+	fmt.Println("  :quit, :q        - Exit the interactive mode")
+}
 
-	// 获取当前模型和温度
-	currentModel := provider.GetCurrentModel()
-	currentTemperature := provider.GetCurrentTemperature()
+func startInteractiveMode() {
+	// Get the active provider
+	var provider provider.Provider
+	var currentModel string
+	var currentTemperature float64
+
+	// Initialize provider and settings
+	provider = api.GetActiveProvider()
+	currentModel = provider.GetCurrentModel()
+	currentTemperature = provider.GetCurrentTemperature()
 	fmt.Println("Welcome to chait interactive mode!")
-	fmt.Println("Type ':quit' or ':q' to exit.")
-	fmt.Println("Type ':help' or ':h' for available commands.")
-	fmt.Println("Type ':clear' or ':c' to start a new conversation.")
-	fmt.Println("Type ':model' to switch between available models.")
-	fmt.Println("Type ':temperature' or ':temp' to set the temperature.")
+	fmt.Printf("Provider: %s (Model: %s, Temperature: %.1f)\n", provider.GetName(), currentModel, currentTemperature)
+	fmt.Println("Type ':help' or ':h' to see all available commands.")
 	fmt.Println("-----------------------------------")
 
-	// 使用 readline 库来处理终端输入，提供更好的行编辑功能
+	// Use the readline library to handle terminal input, providing better line editing capabilities
 	rl, err := readline.New("> ")
 	if err != nil {
 		fmt.Printf("Error initializing readline: %v\n", err)
@@ -434,17 +343,17 @@ func startInteractiveMode() {
 	}
 	defer rl.Close()
 
-	// 保存对话历史
+	// Save conversation history
 	var messages []api.ChatMessage
 
-	// 添加系统消息
+	// Add system message
 	messages = append(messages, api.ChatMessage{
 		Role:    "system",
 		Content: "You are a helpful assistant.",
 	})
 
 	for {
-		// 使用 readline 读取用户输入，提供更好的行编辑功能
+		// Use readline to read user input, providing better line editing capabilities
 		input, err := rl.Readline()
 		if err != nil { // io.EOF, readline.ErrInterrupt
 			if err.Error() == "Interrupt" {
@@ -454,37 +363,58 @@ func startInteractiveMode() {
 			break
 		}
 
-		// 检查是否是命令（以冒号开头）
+		// Check if it's a command (starts with a colon)
 		if len(input) > 0 && input[0] == ':' {
-			// 去除冒号
+			// Remove the colon
 			cmd := input[1:]
 
-			// 处理退出命令
+			// Handle exit command
 			if cmd == "quit" || cmd == "q" {
 				fmt.Println("Goodbye!")
 				break
 			}
 
-			// 处理帮助命令
+			// Handle help command
 			if cmd == "help" || cmd == "h" {
-				fmt.Println("Available commands:")
-				fmt.Println("  :help, :h        - Show this help message")
-				fmt.Println("  :clear, :c       - Start a new conversation")
-				fmt.Println("  :model           - Switch between available models")
-				fmt.Println("  :temperature, :temp - Set the temperature parameter")
-				fmt.Println("  :providers       - List all ready providers")
-				fmt.Println("  :quit, :q        - Exit the interactive mode")
+				displayHelpCommands()
 				continue
 			}
 
-			// 处理清除对话历史命令
+			// Handle clear conversation history command
 			if cmd == "clear" || cmd == "c" {
-				messages = messages[:1] // 只保留系统消息
+				messages = messages[:1] // Only keep the system message
 				fmt.Println("Conversation history cleared.")
 				continue
 			}
 
-			// 处理 providers 命令
+			// Handle provider configuration command
+			if cmd == "provider" {
+				fmt.Println("Configuring provider...")
+				if err := configureProvider(); err != nil {
+					fmt.Printf("Error configuring provider: %v\n", err)
+				} else {
+					// Get the newly configured active provider
+					provider = api.GetActiveProvider()
+					currentModel = provider.GetCurrentModel()
+					currentTemperature = provider.GetCurrentTemperature()
+					
+					// Clear the conversation history when switching providers
+					messages = messages[:0] // Clear all messages
+					
+					// Add system message back
+					messages = append(messages, api.ChatMessage{
+						Role:    "system",
+						Content: "You are a helpful assistant.",
+					})
+					
+					fmt.Printf("Provider switched to %s (Model: %s, Temperature: %.1f)\n",
+						provider.GetName(), currentModel, currentTemperature)
+					fmt.Println("Conversation history cleared.")
+				}
+				continue
+			}
+
+			// Handle providers command
 			if cmd == "providers" {
 				readyProviders := api.GetReadyProviders()
 				if len(readyProviders) == 0 {
@@ -498,24 +428,57 @@ func startInteractiveMode() {
 				continue
 			}
 
-			// 处理温度设置命令
+			// Handle temperature setting command
 			if cmd == "temperature" || cmd == "temp" {
-				fmt.Printf("Current temperature: %.1f\n\n", currentTemperature)
-				fmt.Println("Available temperature presets:")
-				for i, preset := range api.TemperaturePresets {
-					fmt.Printf("  %d. %s (%.1f) - %s%s\n", i+1, preset.Name, preset.Value, preset.Description, func() string {
-						if preset.Value == currentTemperature {
-							return " (current)"
-						}
-						return ""
-					}())
-				}
-				fmt.Println("  C. Custom - Enter a custom temperature value (0.0-2.0)")
+				// Get the current provider
+				provider := api.GetActiveProvider()
+				currentModel := provider.GetCurrentModel()
+				currentTemperature = provider.GetCurrentTemperature()
 
-				// 使用 readline 实例读取温度选择输入
+				// Check if the current model supports temperature settings
+				if provider.GetName() == "openai" && (currentModel == "o1" || currentModel == "o3-mini") {
+					fmt.Printf("Note: The current model '%s' does not support temperature settings. Temperature will be ignored.\n\n", currentModel)
+				}
+
+				// Get provider-specific temperature presets
+				providerPresets := provider.GetTemperaturePresets()
+
+				fmt.Printf("Current temperature for %s: %.1f\n\n", provider.GetName(), currentTemperature)
+				fmt.Println("Available temperature presets:")
+
+				// Display provider-specific presets if available
+				if len(providerPresets) > 0 {
+					for i, preset := range providerPresets {
+						fmt.Printf("  %d. %s (%.1f) - %s%s\n", i+1, preset.Name, preset.Value, preset.Description, func() string {
+							if preset.Value == currentTemperature {
+								return " (current)"
+							}
+							return ""
+						}())
+					}
+				} else {
+					// Fall back to generic presets if provider doesn't have specific ones
+					for i, preset := range api.TemperaturePresets {
+						fmt.Printf("  %d. %s (%.1f) - %s%s\n", i+1, preset.Name, preset.Value, preset.Description, func() string {
+							if preset.Value == currentTemperature {
+								return " (current)"
+							}
+							return ""
+						}())
+					}
+				}
+
+				// Determine the max temperature based on the provider
+				maxTemp := 2.0
+				if provider.GetName() == "openai" {
+					maxTemp = 1.0
+				}
+				fmt.Printf("  C. Custom - Enter a custom temperature value (0.0-%.1f)\n", maxTemp)
+
+				// Use the readline instance to read temperature selection input
 				rl.SetPrompt("\nEnter preset number or 'C' for custom (or press Enter to cancel): ")
 				tempInput, err := rl.Readline()
-				rl.SetPrompt("> ") // 恢复原始提示符
+				rl.SetPrompt("> ") // Restore the original prompt
 				if err != nil {
 					fmt.Printf("Error reading input: %v\n", err)
 					continue
@@ -525,38 +488,53 @@ func startInteractiveMode() {
 					continue
 				}
 
-				// 处理自定义温度
+				// Handle custom temperature
 				if tempInput == "C" || tempInput == "c" {
-					// 使用 readline 实例读取自定义温度输入
-					rl.SetPrompt("Enter custom temperature (0.0-2.0): ")
+					// Determine the max temperature based on the provider
+					maxTemp := 2.0
+					if provider.GetName() == "openai" {
+						maxTemp = 1.0
+					}
+
+					// Use the readline instance to read custom temperature input
+					rl.SetPrompt(fmt.Sprintf("Enter custom temperature (0.0-%.1f): ", maxTemp))
 					customTemp, err := rl.Readline()
-					rl.SetPrompt("> ") // 恢复原始提示符
+					rl.SetPrompt("> ") // Restore the original prompt
 					if err != nil {
 						fmt.Printf("Error reading input: %v\n", err)
 						continue
 					}
 					tempValue, err := strconv.ParseFloat(customTemp, 64)
-					if err != nil || tempValue < 0 || tempValue > 2 {
-						fmt.Println("Invalid temperature value. Please enter a number between 0.0 and 2.0.")
+					if err != nil || tempValue < 0 || tempValue > maxTemp {
+						fmt.Printf("Invalid temperature value. Please enter a number between 0.0 and %.1f.\n", maxTemp)
 						continue
 					}
 
-					// 设置新的温度
+					// Set the new temperature
 					currentTemperature = tempValue
 				} else {
-					// 处理预设温度
+					// Handle preset temperature
 					tempNum, err := strconv.Atoi(tempInput)
-					if err != nil || tempNum < 1 || tempNum > len(api.TemperaturePresets) {
-						fmt.Println("Invalid preset number. Please try again.")
-						continue
-					}
 
-					// 设置新的温度
-					currentTemperature = api.TemperaturePresets[tempNum-1].Value
+					// Check if we're using provider-specific presets or generic ones
+					if len(providerPresets) > 0 {
+						if err != nil || tempNum < 1 || tempNum > len(providerPresets) {
+							fmt.Println("Invalid preset number. Please try again.")
+							continue
+						}
+						// Set the new temperature from provider-specific presets
+						currentTemperature = providerPresets[tempNum-1].Value
+					} else {
+						if err != nil || tempNum < 1 || tempNum > len(api.TemperaturePresets) {
+							fmt.Println("Invalid preset number. Please try again.")
+							continue
+						}
+						// Set the new temperature from generic presets
+						currentTemperature = api.TemperaturePresets[tempNum-1].Value
+					}
 				}
 
-				// 设置 provider 的温度
-				provider := api.GetActiveProvider()
+				// Set the provider's temperature
 				if err := provider.SetCurrentTemperature(currentTemperature); err != nil {
 					fmt.Printf("Error setting temperature: %v\n", err)
 					continue
@@ -576,29 +554,29 @@ func startInteractiveMode() {
 				if err := viper.WriteConfig(); err != nil {
 					fmt.Printf("Error saving temperature setting: %v\n", err)
 				} else {
-					fmt.Printf("Temperature set to %.1f and saved to config.\n", currentTemperature)
+					fmt.Printf("Temperature for %s set to %.1f and saved to config.\n", providerName, currentTemperature)
 				}
 				continue
 			}
 
-			// 处理模型切换命令
+			// Handle model switching command
 			if cmd == "model" {
-				// 获取当前 provider
+				// Get the current provider
 				provider := api.GetActiveProvider()
-				// 使用已经在外部声明的 currentModel 变量
+				// Use the currentModel variable already declared externally
 				currentModel = provider.GetCurrentModel()
-				
+
 				fmt.Printf("Current model: %s\n\n", currentModel)
 				fmt.Println("Available models for provider: " + provider.GetName())
-				
-				// 获取当前 provider 的可用模型
+
+				// Get the available models for the current provider
 				availableModels := provider.GetAvailableModels()
 				if len(availableModels) == 0 {
 					fmt.Println("No available models found for this provider.")
 					continue
 				}
-				
-				// 显示可用模型
+
+				// Display available models
 				for i, model := range availableModels {
 					fmt.Printf("  %d. %s%s\n", i+1, model, func() string {
 						if model == currentModel {
@@ -608,10 +586,10 @@ func startInteractiveMode() {
 					}())
 				}
 
-				// 使用 readline 实例读取模型选择输入
+				// Use the readline instance to read model selection input
 				rl.SetPrompt("\nEnter model number to switch (or press Enter to cancel): ")
 				modelInput, err := rl.Readline()
-				rl.SetPrompt("> ") // 恢复原始提示符
+				rl.SetPrompt("> ") // Restore the original prompt
 				if err != nil {
 					fmt.Printf("Error reading input: %v\n", err)
 					continue
@@ -621,24 +599,24 @@ func startInteractiveMode() {
 					continue
 				}
 
-				// 转换用户输入为整数
+				// Convert user input to integer
 				modelNum, err := strconv.Atoi(modelInput)
 				if err != nil {
 					fmt.Println("Invalid model number. Please try again.")
 					continue
 				}
 
-				// 保存旧模型
+				// Save the old model
 				oldModel := currentModel
 
-				// 重用之前获取的可用模型列表
-				
-				// 设置新模型
+				// Reuse the previously retrieved list of available models
+
+				// Set the new model
 				if modelNum < 1 || modelNum > len(availableModels) {
 					fmt.Println("Invalid model number. Please try again.")
 					continue
 				}
-				
+
 				newModel := availableModels[modelNum-1]
 				if err := provider.SetCurrentModel(newModel); err != nil {
 					fmt.Printf("Error setting model: %v\n", err)
@@ -661,9 +639,9 @@ func startInteractiveMode() {
 					fmt.Printf("Error saving model setting: %v\n", err)
 				}
 
-				// 如果模型已经改变，清除对话历史
+				// If the model has changed, clear the conversation history
 				if oldModel != currentModel {
-					messages = messages[:1] // 只保留系统消息
+					messages = messages[:1] // Only keep the system message
 					fmt.Printf("Switched to model: %s. Conversation history cleared.\n", currentModel)
 				} else {
 					fmt.Printf("Already using model: %s\n", currentModel)
@@ -671,29 +649,29 @@ func startInteractiveMode() {
 				continue
 			}
 
-			// 如果是未知命令
+			// If it's an unknown command
 			fmt.Printf("Unknown command: %s\n", cmd)
 			fmt.Println("Type :help for available commands.")
 			continue
 		}
 
-		// 处理用户输入的其他命令
+		// Process other commands entered by the user
 		if input != "" {
-			// 添加用户消息到历史
+			// Add user message to history
 			messages = append(messages, api.ChatMessage{
 				Role:    "user",
 				Content: input,
 			})
 
-			// 发送请求到 AI provider
+			// Send request to AI provider
 			fmt.Println("Thinking...")
 			response, err := api.SendChatRequest("", messages, "", 0)
 			if err != nil {
-				// 处理特定错误
+				// Handle specific errors
 				errMsg := err.Error()
 				fmt.Printf("\nError: %v\n\n", errMsg)
 
-				// 检查是否是余额不足错误
+				// Check if it's an insufficient balance error
 				if strings.Contains(errMsg, "insufficient balance") || strings.Contains(errMsg, "Insufficient Balance") {
 					fmt.Println("Your Deepseek API account has insufficient balance.")
 					fmt.Println("Please check your account at https://platform.deepseek.com/")
@@ -701,23 +679,23 @@ func startInteractiveMode() {
 					fmt.Println("  chait config providers.deepseek.api_key YOUR_NEW_API_KEY")
 				}
 
-				// 从历史中移除最后一条用户消息，因为请求失败
+				// Remove the last user message from history because the request failed
 				messages = messages[:len(messages)-1]
 				continue
 			}
 
-			// 打印 AI 的回复
+			// Print the AI's response
 			fmt.Println("\n" + response + "\n")
 
-			// 添加 AI 回复到历史
+			// Add AI response to history
 			messages = append(messages, api.ChatMessage{
 				Role:    "assistant",
 				Content: response,
 			})
 
-			// 如果历史太长，可以裁剪
+			// If the history is too long, it can be trimmed
 			if len(messages) > 20 {
-				// 保留系统消息和最近的对话
+				// Keep the system message and the most recent conversations
 				messages = append(messages[:1], messages[len(messages)-19:]...)
 			}
 		}
@@ -768,23 +746,22 @@ func initConfig() {
 			// Config file not found, creating a default one
 			fmt.Println("Config file not found, creating default config")
 
-			// 获取所有可用的 provider
+			// Get all available providers
 			providers := api.GetAvailableProviders()
 
-			// 创建默认配置
+			// Create default configuration
 			defaultConfig := map[string]interface{}{
-				"version":   "1.0.0",
-				"provider":  "", // 当前使用的 provider，空字符串表示需要用户选择
+				"version":   Version,
+				"provider":  "", // Current provider being used, empty string indicates user needs to choose
 				"providers": map[string]interface{}{},
 			}
 
-			// 为每个 provider 创建默认配置
+			// Create default configuration for each provider
 			providersConfig := defaultConfig["providers"].(map[string]interface{})
-			for _, providerName := range providers {
-				p, _ := api.GetProvider(providerName)
+			for _, p := range providers {
 				config := make(map[string]interface{})
 				p.SaveConfig(config)
-				providersConfig[providerName] = config
+				providersConfig[p.GetName()] = config
 			}
 
 			for k, v := range defaultConfig {

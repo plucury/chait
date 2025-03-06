@@ -21,55 +21,55 @@ type TemperaturePreset struct {
 type Provider interface {
 	// GetName returns the name of the provider
 	GetName() string
-	
+
 	// GetDefaultModel returns the default model for this provider
 	GetDefaultModel() string
-	
+
 	// GetAvailableModels returns the list of available models for this provider
 	GetAvailableModels() []string
-	
+
 	// GetDefaultTemperature returns the default temperature for this provider
 	GetDefaultTemperature() float64
-	
+
 	// GetTemperaturePresets returns the available temperature presets for this provider
 	GetTemperaturePresets() []TemperaturePreset
-	
+
 	// GetCurrentModel returns the currently selected model
 	GetCurrentModel() string
-	
+
 	// SetCurrentModel sets the current model
 	SetCurrentModel(model string) error
-	
+
 	// GetCurrentTemperature returns the currently set temperature
 	GetCurrentTemperature() float64
-	
+
 	// SetCurrentTemperature sets the current temperature
 	SetCurrentTemperature(temp float64) error
-	
+
 	// GetAPIKey returns the API key (masked for security)
 	GetAPIKey() string
-	
+
 	// SetAPIKey sets the API key
 	SetAPIKey(apiKey string) error
-	
+
 	// IsReady returns whether the provider is ready to use
 	IsReady() bool
-	
+
 	// SendChatRequest sends a chat request to the provider's API
 	SendChatRequest(messages []ChatMessage) (string, error)
-	
+
 	// LoadConfig loads the provider configuration from the given map
 	LoadConfig(config map[string]interface{}) error
-	
+
 	// SaveConfig saves the provider configuration to the given map
 	SaveConfig(config map[string]interface{})
 }
 
 // BaseProvider implements common functionality for all providers
 type BaseProvider struct {
-	Name        string
-	APIKey      string
-	CurrentModel string
+	Name               string
+	APIKey             string
+	CurrentModel       string
 	CurrentTemperature float64
 }
 
@@ -78,12 +78,12 @@ func (p *BaseProvider) GetAPIKey() string {
 	if p.APIKey == "" {
 		return ""
 	}
-	
+
 	// Mask the API key for security (show only first 4 and last 4 characters)
 	if len(p.APIKey) <= 8 {
 		return "****"
 	}
-	
+
 	return p.APIKey[:4] + "****" + p.APIKey[len(p.APIKey)-4:]
 }
 
@@ -116,9 +116,23 @@ func (p *BaseProvider) SetCurrentTemperature(temp float64) error {
 	if temp < 0 || temp > 2.0 {
 		return fmt.Errorf("temperature must be between 0.0 and 2.0")
 	}
-	
+
 	p.CurrentTemperature = temp
 	return nil
+}
+
+// Default temperature presets for all providers
+var DefaultTemperaturePresets = []TemperaturePreset{
+	{"Precise", 0.0, "Highly deterministic responses for factual queries"},
+	{"Balanced", 0.7, "Good balance between creativity and coherence"},
+	{"Creative", 1.0, "More varied and creative responses"},
+	{"Very Creative", 1.5, "Highly varied and potentially more unexpected responses"},
+}
+
+// GetTemperaturePresets returns the default temperature presets
+// This should be overridden by providers that have specific presets
+func (p *BaseProvider) GetTemperaturePresets() []TemperaturePreset {
+	return DefaultTemperaturePresets
 }
 
 // IsReady returns whether the provider is ready to use
@@ -147,22 +161,37 @@ func GetProvider(name string) (Provider, bool) {
 	if instance, ok := providerInstances[name]; ok {
 		return instance, true
 	}
-	
+
 	// 如果没有缓存的实例，则创建一个新的实例
 	factory, exists := providers[name]
 	if !exists {
 		return nil, false
 	}
-	
+	// debug
+	fmt.Printf("Creating new provider instance for %s\n", name)
+
 	// 创建新实例并缓存
 	instance := factory()
 	providerInstances[name] = instance
-	
+
 	return instance, true
 }
 
-// GetAvailableProviders returns the list of available provider names
-func GetAvailableProviders() []string {
+// GetAvailableProviders returns the list of available provider instances
+func GetAvailableProviders() []Provider {
+	var providerList []Provider
+	for name := range providers {
+		// Get or create the provider instance
+		instance, exists := GetProvider(name)
+		if exists {
+			providerList = append(providerList, instance)
+		}
+	}
+	return providerList
+}
+
+// GetAvailableProviderNames returns the list of available provider names
+func GetAvailableProviderNames() []string {
 	var names []string
 	for name := range providers {
 		names = append(names, name)

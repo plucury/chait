@@ -71,6 +71,17 @@ func (p *DeepseekProvider) GetTemperaturePresets() []TemperaturePreset {
 	return deepseekTemperaturePresets
 }
 
+// SetCurrentTemperature sets the current temperature with Deepseek-specific validation
+func (p *DeepseekProvider) SetCurrentTemperature(temp float64) error {
+	// Validate temperature range specific to Deepseek (0-2)
+	if temp < 0 || temp > 2.0 {
+		return fmt.Errorf("Deepseek temperature must be between 0.0 and 2.0")
+	}
+
+	p.CurrentTemperature = temp
+	return nil
+}
+
 // chatRequest represents the request to the Deepseek chat API
 type chatRequest struct {
 	Model       string        `json:"model"`

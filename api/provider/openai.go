@@ -74,6 +74,17 @@ func (p *OpenAIProvider) GetTemperaturePresets() []TemperaturePreset {
 	return openaiTemperaturePresets
 }
 
+// SetCurrentTemperature sets the current temperature with OpenAI-specific validation
+func (p *OpenAIProvider) SetCurrentTemperature(temp float64) error {
+	// Validate temperature range specific to OpenAI (0-1)
+	if temp < 0 || temp > 1.0 {
+		return fmt.Errorf("OpenAI temperature must be between 0.0 and 1.0")
+	}
+
+	p.CurrentTemperature = temp
+	return nil
+}
+
 // chatRequest represents the request to the OpenAI chat API
 type openaiChatRequest struct {
 	Model       string        `json:"model"`
@@ -121,9 +132,17 @@ func (p *OpenAIProvider) SendChatRequest(messages []ChatMessage) (string, error)
 
 	// 创建请求体
 	requestBody := openaiChatRequest{
-		Model:       p.CurrentModel,
-		Messages:    messages,
-		Temperature: p.CurrentTemperature,
+		Model:    p.CurrentModel,
+		Messages: messages,
+	}
+	
+	// Only set temperature for models that support it
+	// o1 and o3-mini models ignore temperature
+	if p.CurrentModel != "o1" && p.CurrentModel != "o3-mini" {
+		requestBody.Temperature = p.CurrentTemperature
+		fmt.Printf("DEBUG: Using temperature: %.1f\n", p.CurrentTemperature)
+	} else {
+		fmt.Printf("DEBUG: Temperature ignored for model %s\n", p.CurrentModel)
 	}
 
 	// 将请求体转换为 JSON

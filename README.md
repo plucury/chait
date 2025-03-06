@@ -1,63 +1,100 @@
 # chait
 
-一个基于 Cobra 的 Golang 命令行工具，用于管理配置数据。
+A Golang command-line tool based on Cobra for managing configuration data and interacting with AI providers.
 
-## 功能特点
+## Features
 
-- 配置数据保存在 `~/.config/chait/config.json` 中
-- 支持获取、设置、列出和重置配置
-- 使用 Viper 进行配置管理，支持嵌套配置项
+- Configuration data is stored in `~/.config/chait/config.json`
+- Supports getting, setting, listing, and resetting configurations
+- Uses Viper for configuration management, supporting nested configuration items
+- Supports multiple AI providers (OpenAI, Deepseek)
+- Interactive chat mode with model and temperature settings
 
-## 安装
+## Installation
 
 ```bash
 go install github.com/plucury/chait@latest
 ```
 
-## 使用方法
+## Usage
 
-### 基本命令
+### Basic Commands
 
 ```bash
-# 显示帮助信息
+# Show help information
 chait --help
 
-# 获取配置值
+# Display the current version
+chait --version or chait -v
+
+# Interactively select a provider
+chait --provider or chait -p
+
+# Get configuration value
 chait get [key]
 
-# 设置配置值
+# Set configuration value
 chait set [key] [value]
 
-# 列出所有配置
+# List all configurations
 chait list
 
-# 重置配置为默认值
+# Reset configuration to default values
 chait reset
+
+# Start interactive chat mode
+chait
 ```
 
-### 示例
+### Examples
 
 ```bash
-# 设置调试模式
+# Set debug mode
 chait set settings.debug true
 
-# 获取版本信息
+# Get version information
 chait get version
 
-# 列出所有配置
+# List all configurations
 chait list
 ```
 
-## 开发
+### Interactive Mode Commands
 
-### 构建
+```bash
+# Show help information
+:help or :h
+
+# Start a new conversation
+:clear or :c
+
+# Switch between available models for the current provider
+:model
+
+# Set the temperature parameter
+:temperature or :temp
+
+# Configure or switch provider
+:provider
+
+# Exit interactive mode
+:quit or :q
+```
+
+## Development
+
+### Building
 
 ```bash
 go build -o chait
 ```
 
-### 添加新命令
+### Running Commands During Development
 
 ```bash
 go run main.go [command] [args]
 ```
+
+### Adding New Providers
+
+Implement the Provider interface defined in `api/provider/provider.go` and register it in the init function.

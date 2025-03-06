@@ -114,9 +114,16 @@ func SendChatRequest(apiKey string, messages []ChatMessage, model string, temper
 	return activeProvider.SendChatRequest(messages)
 }
 
-// GetAvailableProviders 返回可用的 provider 名称列表
-func GetAvailableProviders() []string {
+// GetAvailableProviders 返回所有可用的 provider 实例
+func GetAvailableProviders() []provider.Provider {
+	// 直接返回 provider 实例列表
 	return provider.GetAvailableProviders()
+}
+
+// GetAvailableProviderNames 返回可用的 provider 名称列表
+func GetAvailableProviderNames() []string {
+	// 获取所有可用的 provider 名称
+	return provider.GetAvailableProviderNames()
 }
 
 // GetProvider 根据名称返回 provider
@@ -127,11 +134,10 @@ func GetProvider(name string) (provider.Provider, bool) {
 // GetReadyProviders 返回所有就绪的 provider 列表
 func GetReadyProviders() []provider.Provider {
 	var readyProviders []provider.Provider
-	providerNames := provider.GetAvailableProviders()
+	providers := GetAvailableProviders()
 
-	for _, name := range providerNames {
-		p, exists := provider.GetProvider(name)
-		if exists && p.IsReady() {
+	for _, p := range providers {
+		if p.IsReady() {
 			readyProviders = append(readyProviders, p)
 		}
 	}
