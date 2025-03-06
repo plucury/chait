@@ -12,7 +12,7 @@ import (
 var configCmd = &cobra.Command{
 	Use:   "config [key] [value]",
 	Short: "Set configuration values",
-	Long: `Set configuration values in ~/.config/chain/config.json.
+	Long: `Set configuration values in ~/.config/chait/config.json.
 Example:
   chait config providers.deepseek.api_key YOUR_API_KEY`,
 	Run: func(cmd *cobra.Command, args []string) {
@@ -20,7 +20,7 @@ Example:
 			fmt.Println("Error: config requires a key and value")
 			return
 		}
-		
+
 		key := args[0]
 		value := args[1]
 		setConfig(key, value)
@@ -58,14 +58,14 @@ func parseNumber(s string) (interface{}, error) {
 		fmt.Sscanf(s, "%d", &result)
 		return result, nil
 	}
-	
+
 	// Try to parse as float
 	if i, err := fmt.Sscanf(s, "%f", new(float64)); err == nil && i == 1 {
 		var result float64
 		fmt.Sscanf(s, "%f", &result)
 		return result, nil
 	}
-	
+
 	return nil, fmt.Errorf("not a number")
 }
 

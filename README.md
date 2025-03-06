@@ -4,7 +4,7 @@
 
 ## 功能特点
 
-- 配置数据保存在 `~/.config/chain/config.json` 中
+- 配置数据保存在 `~/.config/chait/config.json` 中
 - 支持获取、设置、列出和重置配置
 - 使用 Viper 进行配置管理，支持嵌套配置项
 
