@@ -12,6 +12,7 @@ import (
 
 	"github.com/plucury/chait/api"
 	"github.com/plucury/chait/api/provider"
+	"github.com/plucury/chait/util"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -34,6 +35,7 @@ var rootCmd = &cobra.Command{
 
 		// Load all provider configurations
 		loadProviderConfigurations()
+		DebugLog("Loaded provider configurations")
 	},
 	Run: func(cmd *cobra.Command, args []string) {
 		// Check if we need to display the version information
@@ -82,10 +84,12 @@ var rootCmd = &cobra.Command{
 		}
 
 		// Load provider configuration
+		DebugLog("Loading provider configuration for %s", providerName)
 		if err := api.LoadProviderConfig(providerName, config); err != nil {
 			fmt.Printf("Error loading provider config: %v\n", err)
 			return
 		}
+		DebugLog("Successfully loaded provider configuration for %s", providerName)
 
 		// Get all ready providers
 		readyProviders := api.GetReadyProviders()
@@ -105,10 +109,10 @@ var rootCmd = &cobra.Command{
 				fmt.Println("Still no ready providers. Exiting.")
 
 				// Debug information
-				fmt.Println("DEBUG: Checking provider status...")
+				DebugLog("Checking provider status...")
 				providers := api.GetAvailableProviders()
 				for _, p := range providers {
-					fmt.Printf("DEBUG: Provider %s exists, IsReady: %v, API Key set: %v\n",
+					DebugLog("Provider %s exists, IsReady: %v, API Key set: %v",
 						p.GetName(), p.IsReady(), p.GetAPIKey() != "")
 				}
 				return
@@ -317,6 +321,7 @@ func displayHelpCommands() {
 	fmt.Println("  :model           - Switch between available models")
 	fmt.Println("  :temperature, :temp - Set the temperature parameter")
 	fmt.Println("  :provider        - Configure or switch provider")
+	fmt.Println("  :debug           - Toggle debug mode")
 	fmt.Println("  :quit, :q        - Exit the interactive mode")
 }
 
@@ -397,19 +402,43 @@ func startInteractiveMode() {
 					provider = api.GetActiveProvider()
 					currentModel = provider.GetCurrentModel()
 					currentTemperature = provider.GetCurrentTemperature()
-					
+					DebugLog("Switched to provider: %s, model: %s, temperature: %.1f", provider.GetName(), currentModel, currentTemperature)
+
 					// Clear the conversation history when switching providers
 					messages = messages[:0] // Clear all messages
-					
+
 					// Add system message back
 					messages = append(messages, api.ChatMessage{
 						Role:    "system",
 						Content: "You are a helpful assistant.",
 					})
-					
+
 					fmt.Printf("Provider switched to %s (Model: %s, Temperature: %.1f)\n",
 						provider.GetName(), currentModel, currentTemperature)
 					fmt.Println("Conversation history cleared.")
+				}
+				continue
+			}
+
+			// Handle debug mode toggle command
+			if cmd == "debug" {
+				// Get current debug mode status
+				currentDebugMode := viper.GetBool("debug")
+
+				// Toggle debug mode
+				newDebugMode := !currentDebugMode
+				viper.Set("debug", newDebugMode)
+
+				// Save to config file
+				if err := viper.WriteConfig(); err != nil {
+					fmt.Printf("Error saving debug mode setting: %v\n", err)
+				} else {
+					if newDebugMode {
+						fmt.Println("Debug mode enabled. Debug logs will be displayed.")
+						DebugLog("Debug mode enabled")
+					} else {
+						fmt.Println("Debug mode disabled. Debug logs will not be displayed.")
+					}
 				}
 				continue
 			}
@@ -430,6 +459,7 @@ func startInteractiveMode() {
 
 			// Handle temperature setting command
 			if cmd == "temperature" || cmd == "temp" {
+				DebugLog("Temperature setting command triggered for provider %s", provider.GetName())
 				// Get the current provider
 				provider := api.GetActiveProvider()
 				currentModel := provider.GetCurrentModel()
@@ -535,6 +565,7 @@ func startInteractiveMode() {
 				}
 
 				// Set the provider's temperature
+				DebugLog("Setting temperature to %.1f for provider %s", currentTemperature, provider.GetName())
 				if err := provider.SetCurrentTemperature(currentTemperature); err != nil {
 					fmt.Printf("Error setting temperature: %v\n", err)
 					continue
@@ -555,12 +586,14 @@ func startInteractiveMode() {
 					fmt.Printf("Error saving temperature setting: %v\n", err)
 				} else {
 					fmt.Printf("Temperature for %s set to %.1f and saved to config.\n", providerName, currentTemperature)
+					DebugLog("Successfully saved temperature %.1f to config for provider %s", currentTemperature, providerName)
 				}
 				continue
 			}
 
 			// Handle model switching command
 			if cmd == "model" {
+				DebugLog("Model selection command triggered for provider %s", provider.GetName())
 				// Get the current provider
 				provider := api.GetActiveProvider()
 				// Use the currentModel variable already declared externally
@@ -570,6 +603,7 @@ func startInteractiveMode() {
 				fmt.Println("Available models for provider: " + provider.GetName())
 
 				// Get the available models for the current provider
+				DebugLog("Retrieving available models for provider %s", provider.GetName())
 				availableModels := provider.GetAvailableModels()
 				if len(availableModels) == 0 {
 					fmt.Println("No available models found for this provider.")
@@ -602,6 +636,7 @@ func startInteractiveMode() {
 				// Convert user input to integer
 				modelNum, err := strconv.Atoi(modelInput)
 				if err != nil {
+					DebugLog("Invalid model selection input: %s", modelInput)
 					fmt.Println("Invalid model number. Please try again.")
 					continue
 				}
@@ -613,11 +648,13 @@ func startInteractiveMode() {
 
 				// Set the new model
 				if modelNum < 1 || modelNum > len(availableModels) {
+					DebugLog("Model number out of range: %d (valid range: 1-%d)", modelNum, len(availableModels))
 					fmt.Println("Invalid model number. Please try again.")
 					continue
 				}
 
 				newModel := availableModels[modelNum-1]
+				DebugLog("Setting model to %s for provider %s", newModel, provider.GetName())
 				if err := provider.SetCurrentModel(newModel); err != nil {
 					fmt.Printf("Error setting model: %v\n", err)
 					continue
@@ -637,6 +674,8 @@ func startInteractiveMode() {
 				// 写入配置文件
 				if err := viper.WriteConfig(); err != nil {
 					fmt.Printf("Error saving model setting: %v\n", err)
+				} else {
+					DebugLog("Successfully saved model %s to config for provider %s", newModel, providerName)
 				}
 
 				// If the model has changed, clear the conversation history
@@ -665,6 +704,7 @@ func startInteractiveMode() {
 
 			// Send request to AI provider
 			fmt.Println("Thinking...")
+			DebugLog("Sending chat request to provider %s with %d messages", provider.GetName(), len(messages))
 			response, err := api.SendChatRequest("", messages, "", 0)
 			if err != nil {
 				// Handle specific errors
@@ -700,6 +740,16 @@ func startInteractiveMode() {
 			}
 		}
 	}
+}
+
+// IsDebugMode is a wrapper for util.IsDebugMode
+func IsDebugMode() bool {
+	return util.IsDebugMode()
+}
+
+// DebugLog is a wrapper for util.DebugLog
+func DebugLog(format string, args ...interface{}) {
+	util.DebugLog(format, args...)
 }
 
 func initConfig() {
@@ -754,6 +804,7 @@ func initConfig() {
 				"version":   Version,
 				"provider":  "", // Current provider being used, empty string indicates user needs to choose
 				"providers": map[string]interface{}{},
+				"debug":     false, // Debug mode, when true prints debug logs
 			}
 
 			// Create default configuration for each provider

@@ -9,6 +9,9 @@ A Golang command-line tool based on Cobra for managing configuration data and in
 - Uses Viper for configuration management, supporting nested configuration items
 - Supports multiple AI providers (OpenAI, Deepseek)
 - Interactive chat mode with model and temperature settings
+- Provider-specific temperature ranges (OpenAI: 0-1, Deepseek: 0-2)
+- Automatic conversation history clearing when switching providers or models
+- Debug mode for troubleshooting and development with timestamped logs
 
 ## Installation
 
@@ -30,33 +33,8 @@ chait --version or chait -v
 # Interactively select a provider
 chait --provider or chait -p
 
-# Get configuration value
-chait get [key]
-
-# Set configuration value
-chait set [key] [value]
-
-# List all configurations
-chait list
-
-# Reset configuration to default values
-chait reset
-
 # Start interactive chat mode
 chait
-```
-
-### Examples
-
-```bash
-# Set debug mode
-chait set settings.debug true
-
-# Get version information
-chait get version
-
-# List all configurations
-chait list
 ```
 
 ### Interactive Mode Commands

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	
+	"github.com/plucury/chait/util"
 )
 
 // DeepseekProvider implements the Provider interface for Deepseek API
@@ -124,9 +126,13 @@ func (p *DeepseekProvider) SendChatRequest(messages []ChatMessage) (string, erro
 		Messages:    messages,
 		Temperature: p.CurrentTemperature,
 	}
+	
+	util.DebugLog("Using Deepseek model: %s", p.CurrentModel)
+	util.DebugLog("Using temperature: %.1f", p.CurrentTemperature)
 
 	// 将请求体序列化为 JSON
 	jsonData, err := json.Marshal(requestBody)
+	util.DebugLog("Request JSON: %s", string(jsonData))
 	if err != nil {
 		return "", fmt.Errorf("error marshaling request: %v", err)
 	}
@@ -213,6 +219,7 @@ func (p *DeepseekProvider) SetCurrentModel(model string) error {
 	}
 
 	p.CurrentModel = model
+	util.DebugLog("Deepseek model set to: %s", model)
 	return nil
 }
 
@@ -221,16 +228,19 @@ func (p *DeepseekProvider) LoadConfig(config map[string]interface{}) error {
 	// 加载 API Key
 	if apiKey, ok := config["api_key"].(string); ok {
 		p.APIKey = apiKey
+		util.DebugLog("Loaded API key for Deepseek provider")
 	}
 
 	// 加载当前模型
 	if model, ok := config["model"].(string); ok {
+		util.DebugLog("Found model in config: %s", model)
 		if err := p.SetCurrentModel(model); err != nil {
 			// 如果模型无效，使用默认模型
 			p.CurrentModel = deepseekDefaultModel
 		}
 	} else {
 		// 如果没有设置模型，使用默认模型
+		util.DebugLog("No model found in config, using default model: %s", deepseekDefaultModel)
 		p.CurrentModel = deepseekDefaultModel
 	}
 
@@ -255,6 +265,7 @@ func (p *DeepseekProvider) SaveConfig(config map[string]interface{}) {
 	
 	// 保存当前模型
 	config["model"] = p.CurrentModel
+	util.DebugLog("Saving Deepseek model to config: %s", p.CurrentModel)
 	
 	// 保存温度设置
 	config["temperature"] = p.CurrentTemperature

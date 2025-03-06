@@ -2,6 +2,8 @@ package provider
 
 import (
 	"fmt"
+	
+	"github.com/plucury/chait/util"
 )
 
 // ChatMessage represents a message in the chat
@@ -168,7 +170,7 @@ func GetProvider(name string) (Provider, bool) {
 		return nil, false
 	}
 	// debug
-	fmt.Printf("Creating new provider instance for %s\n", name)
+	util.DebugLog("Creating new provider instance for %s", name)
 
 	// 创建新实例并缓存
 	instance := factory()

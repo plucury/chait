@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	
+	"github.com/plucury/chait/util"
 )
 
 // OpenAIProvider implements the Provider interface for OpenAI API
@@ -128,7 +130,7 @@ func (p *OpenAIProvider) SendChatRequest(messages []ChatMessage) (string, error)
 	}
 
 	// 输出调试信息
-	fmt.Printf("DEBUG: Using OpenAI model: %s\n", p.CurrentModel)
+	util.DebugLog("Using OpenAI model: %s", p.CurrentModel)
 
 	// 创建请求体
 	requestBody := openaiChatRequest{
@@ -140,14 +142,14 @@ func (p *OpenAIProvider) SendChatRequest(messages []ChatMessage) (string, error)
 	// o1 and o3-mini models ignore temperature
 	if p.CurrentModel != "o1" && p.CurrentModel != "o3-mini" {
 		requestBody.Temperature = p.CurrentTemperature
-		fmt.Printf("DEBUG: Using temperature: %.1f\n", p.CurrentTemperature)
+		util.DebugLog("Using temperature: %.1f", p.CurrentTemperature)
 	} else {
-		fmt.Printf("DEBUG: Temperature ignored for model %s\n", p.CurrentModel)
+		util.DebugLog("Temperature ignored for model %s", p.CurrentModel)
 	}
 
 	// 将请求体转换为 JSON
 	requestJSON, err := json.Marshal(requestBody)
-	fmt.Printf("DEBUG: Request JSON: %s\n", string(requestJSON))
+	util.DebugLog("Request JSON: %s", string(requestJSON))
 	if err != nil {
 		return "", fmt.Errorf("error marshaling request: %v", err)
 	}
@@ -214,7 +216,7 @@ func (p *OpenAIProvider) SetCurrentModel(model string) error {
 
 	// 设置模型并输出调试信息
 	p.CurrentModel = model
-	fmt.Printf("DEBUG: OpenAI model set to: %s\n", model)
+	util.DebugLog("OpenAI model set to: %s", model)
 	return nil
 }
 
@@ -223,12 +225,12 @@ func (p *OpenAIProvider) LoadConfig(config map[string]interface{}) error {
 	// 加载 API Key
 	if apiKey, ok := config["api_key"].(string); ok {
 		p.APIKey = apiKey
-		fmt.Printf("DEBUG: Loaded API key for OpenAI provider\n")
+		util.DebugLog("Loaded API key for OpenAI provider")
 	}
 
 	// 加载当前模型
 	if model, ok := config["model"].(string); ok {
-		fmt.Printf("DEBUG: Found model in config: %s\n", model)
+		util.DebugLog("Found model in config: %s", model)
 		if err := p.SetCurrentModel(model); err != nil {
 			// 如果模型无效，使用默认模型
 			fmt.Printf("WARNING: Invalid model in config, using default model: %s\n", openaiDefaultModel)
@@ -236,7 +238,7 @@ func (p *OpenAIProvider) LoadConfig(config map[string]interface{}) error {
 		}
 	} else {
 		// 如果没有设置模型，使用默认模型
-		fmt.Printf("DEBUG: No model found in config, using default model: %s\n", openaiDefaultModel)
+		util.DebugLog("No model found in config, using default model: %s", openaiDefaultModel)
 		p.CurrentModel = openaiDefaultModel
 	}
 
@@ -267,7 +269,7 @@ func (p *OpenAIProvider) SaveConfig(config map[string]interface{}) {
 
 	// 保存当前模型
 	config["model"] = p.CurrentModel
-	fmt.Printf("DEBUG: Saving OpenAI model to config: %s\n", p.CurrentModel)
+	util.DebugLog("Saving OpenAI model to config: %s", p.CurrentModel)
 
 	// 保存温度设置
 	config["temperature"] = p.CurrentTemperature
