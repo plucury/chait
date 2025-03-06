@@ -60,7 +60,7 @@ jobs:
           go build -ldflags "-X github.com/plucury/chait/cmd.Version=${{ env.VERSION }}" -o ${{ matrix.filename }}
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.filename }}
           path: ${{ matrix.filename }}
@@ -96,7 +96,7 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
 
       - name: Create Release
         id: create_release
