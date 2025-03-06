@@ -1,17 +1,20 @@
 # chait
 
-A Golang command-line tool based on Cobra for managing configuration data and interacting with AI providers.
+🤖 **Chat with AI directly from your command line!**
 
-## Features
+Chait is a Golang-based command-line tool that allows you to have natural, fluid conversations with various AI models without leaving your terminal. Whether you're a developer, system administrator, or command-line enthusiast, chait provides a convenient AI interaction experience right where you work.
 
-- Configuration data is stored in `~/.config/chait/config.json`
-- Supports getting, setting, listing, and resetting configurations
-- Uses Viper for configuration management, supporting nested configuration items
-- Supports multiple AI providers (OpenAI, Deepseek)
-- Interactive chat mode with model and temperature settings
-- Provider-specific temperature ranges (OpenAI: 0-1, Deepseek: 0-2)
-- Automatic conversation history clearing when switching providers or models
-- Debug mode for troubleshooting and development with timestamped logs
+## Key Features
+
+### 💬 Command-Line AI Chat
+- **Seamless Terminal Experience**: Chat with AI directly in your familiar command-line environment without switching applications
+- **Interactive Chat Mode**: Support for multi-turn conversations with context continuity
+- **Instant Responses**: Quickly get AI answers to boost your productivity
+
+### 🔄 Multi-Model Support
+- **Multiple Providers**: Currently supports major AI providers including OpenAI, Deepseek, and more
+- **Flexible Model Switching**: Easily switch between different AI models
+- **Customizable Parameters**: Adjust temperature and other parameters to control response creativity
 
 ## Installation
 
@@ -58,21 +61,3 @@ chait
 # Exit interactive mode
 :quit or :q
 ```
-
-## Development
-
-### Building
-
-```bash
-go build -o chait
-```
-
-### Running Commands During Development
-
-```bash
-go run main.go [command] [args]
-```
-
-### Adding New Providers
-
-Implement the Provider interface defined in `api/provider/provider.go` and register it in the init function.
