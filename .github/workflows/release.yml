@@ -1,0 +1,115 @@
+name: Build and Release
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    name: Build and Release
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            filename: chait-linux-amd64
+          - goos: linux
+            goarch: arm64
+            filename: chait-linux-arm64
+          - goos: darwin
+            goarch: amd64
+            filename: chait-darwin-amd64
+          - goos: darwin
+            goarch: arm64
+            filename: chait-darwin-arm64
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.22'
+
+      - name: Get version
+        id: get_version
+        run: |
+          if [[ $GITHUB_REF == refs/tags/* ]]; then
+            # For tags, use the tag name as version
+            VERSION=${GITHUB_REF#refs/tags/}
+          else
+            # For main branch, use short commit hash
+            VERSION=$(git rev-parse --short HEAD)
+          fi
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: |
+          go build -ldflags "-X github.com/plucury/chait/cmd.Version=${{ env.VERSION }}" -o ${{ matrix.filename }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ matrix.filename }}
+          path: ${{ matrix.filename }}
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Get version
+        id: get_version
+        run: |
+          if [[ $GITHUB_REF == refs/tags/* ]]; then
+            # For tags, use the tag name as version
+            VERSION=${GITHUB_REF#refs/tags/}
+            RELEASE_NAME="Release $VERSION"
+            IS_PRE_RELEASE=false
+          else
+            # For main branch, use short commit hash
+            VERSION=$(git rev-parse --short HEAD)
+            RELEASE_NAME="Development Build $VERSION"
+            IS_PRE_RELEASE=true
+          fi
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "RELEASE_NAME=$RELEASE_NAME" >> $GITHUB_ENV
+          echo "IS_PRE_RELEASE=$IS_PRE_RELEASE" >> $GITHUB_ENV
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v3
+
+      - name: Create Release
+        id: create_release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: ${{ env.RELEASE_NAME }}
+          tag_name: ${{ env.VERSION }}
+          prerelease: ${{ env.IS_PRE_RELEASE }}
+          files: |
+            chait-linux-amd64/chait-linux-amd64
+            chait-linux-arm64/chait-linux-arm64
+            chait-darwin-amd64/chait-darwin-amd64
+            chait-darwin-arm64/chait-darwin-arm64
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
