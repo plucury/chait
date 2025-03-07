@@ -9,10 +9,11 @@ Chait is a Golang-based command-line tool that allows you to have natural, fluid
 ### 💬 Command-Line AI Chat
 - **Seamless Terminal Experience**: Chat with AI directly in your familiar command-line environment without switching applications
 - **Interactive Chat Mode**: Support for multi-turn conversations with context continuity
+- **Streaming Responses**: See AI responses in real-time as they're generated
 - **Instant Responses**: Quickly get AI answers to boost your productivity
 
 ### 🔄 Multi-Model Support
-- **Multiple Providers**: Currently supports major AI providers including OpenAI, Deepseek, and more
+- **Multiple Providers**: Currently supports major AI providers including OpenAI, Deepseek, Grok, and more
 - **Flexible Model Switching**: Easily switch between different AI models
 - **Customizable Parameters**: Adjust temperature and other parameters to control response creativity
 
@@ -53,6 +54,20 @@ sudo mv chait /usr/local/bin/
 ```
 
 Alternatively, you can manually download the appropriate binary for your system from the [Releases page](https://github.com/plucury/chait/releases), make it executable, and move it to a directory in your PATH.
+
+## Supported Providers
+
+### OpenAI
+- Models: gpt-4o, gpt-4o-mini, gpt-4.5, o1, o3-mini
+- Temperature range: 0.0-1.0
+
+### Deepseek
+- Models: deepseek-chat, deepseek-reasoner
+- Temperature range: 0.0-2.0
+
+### Grok
+- Models: grok-2-1212
+- Temperature range: 0.0-2.0 (Higher values like 0.8 make output more random, lower values like 0.2 make it more focused)
 
 ## Usage
 
