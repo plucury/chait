@@ -19,6 +19,13 @@ type TemperaturePreset struct {
 	Description string
 }
 
+// StreamResponse represents a streaming response chunk from the API
+type StreamResponse struct {
+	Content string
+	Done    bool
+	Error   error
+}
+
 // Provider defines the interface for AI chat providers
 type Provider interface {
 	// GetName returns the name of the provider
@@ -59,6 +66,9 @@ type Provider interface {
 
 	// SendChatRequest sends a chat request to the provider's API
 	SendChatRequest(messages []ChatMessage) (string, error)
+
+	// SendStreamingChatRequest sends a chat request and returns a channel for streaming responses
+	SendStreamingChatRequest(messages []ChatMessage) (<-chan StreamResponse, error)
 
 	// LoadConfig loads the provider configuration from the given map
 	LoadConfig(config map[string]interface{}) error

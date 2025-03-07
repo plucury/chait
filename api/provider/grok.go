@@ -7,94 +7,93 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	
+
 	"github.com/plucury/chait/util"
 )
 
-// DeepseekProvider implements the Provider interface for Deepseek API
-type DeepseekProvider struct {
+// GrokProvider implements the Provider interface for Grok API
+type GrokProvider struct {
 	BaseProvider // 嵌入基础提供者结构体
 }
 
 const (
-	deepseekAPIURL     = "https://api.deepseek.com/v1/chat/completions"
-	deepseekDefaultModel = "deepseek-chat"
-	deepseekDefaultTemperature = 1.0
+	grokAPIURL             = "https://api.x.ai/v1/chat/completions"
+	grokDefaultModel       = "grok-2-1212"
+	grokDefaultTemperature = 1.0 // Default temperature as per Grok API documentation
 )
 
-// Available models for Deepseek API
-var deepseekAvailableModels = []string{
-	"deepseek-chat",
-	"deepseek-reasoner",
+// Available models for Grok API
+var grokAvailableModels = []string{
+	"grok-2-1212",
 }
 
-// Available temperature presets for Deepseek API
-var deepseekTemperaturePresets = []TemperaturePreset{
-	{"Code Generation", 0.0, "Code generation or math problem solving"},
-	{"Data Extraction", 1.0, "Data extraction and analysis"},
-	{"General Conversation", 1.3, "General conversation"},
-	{"Translation", 1.3, "Translation tasks"},
-	{"Creative Writing", 1.5, "Creative writing or poetry"},
+// Available temperature presets for Grok API
+var grokTemperaturePresets = []TemperaturePreset{
+	{"Focused", 0.2, "More focused and deterministic responses for specific tasks"},
+	{"Balanced Low", 0.5, "Good balance with slight focus on determinism"},
+	{"Balanced", 1.0, "Default balance between randomness and determinism"},
+	{"Creative", 1.5, "More random and creative responses"},
+	{"Highly Creative", 2.0, "Maximum randomness for highly varied outputs"},
 }
 
-// NewDeepseekProvider creates a new instance of DeepseekProvider
-func NewDeepseekProvider() Provider {
-	provider := &DeepseekProvider{
+// NewGrokProvider creates a new instance of GrokProvider
+func NewGrokProvider() Provider {
+	provider := &GrokProvider{
 		BaseProvider: BaseProvider{
-			Name:               "deepseek",
-			CurrentModel:       deepseekDefaultModel,
-			CurrentTemperature: deepseekDefaultTemperature,
+			Name:               "grok",
+			CurrentModel:       grokDefaultModel,
+			CurrentTemperature: grokDefaultTemperature,
 		},
 	}
 	return provider
 }
 
 // GetName returns the name of the provider
-func (p *DeepseekProvider) GetName() string {
+func (p *GrokProvider) GetName() string {
 	return p.Name
 }
 
 // GetDefaultModel returns the default model for this provider
-func (p *DeepseekProvider) GetDefaultModel() string {
-	return deepseekDefaultModel
+func (p *GrokProvider) GetDefaultModel() string {
+	return grokDefaultModel
 }
 
 // GetAvailableModels returns the list of available models for this provider
-func (p *DeepseekProvider) GetAvailableModels() []string {
-	return deepseekAvailableModels
+func (p *GrokProvider) GetAvailableModels() []string {
+	return grokAvailableModels
 }
 
 // GetDefaultTemperature returns the default temperature for this provider
-func (p *DeepseekProvider) GetDefaultTemperature() float64 {
-	return deepseekDefaultTemperature
+func (p *GrokProvider) GetDefaultTemperature() float64 {
+	return grokDefaultTemperature
 }
 
 // GetTemperaturePresets returns the available temperature presets for this provider
-func (p *DeepseekProvider) GetTemperaturePresets() []TemperaturePreset {
-	return deepseekTemperaturePresets
+func (p *GrokProvider) GetTemperaturePresets() []TemperaturePreset {
+	return grokTemperaturePresets
 }
 
-// SetCurrentTemperature sets the current temperature with Deepseek-specific validation
-func (p *DeepseekProvider) SetCurrentTemperature(temp float64) error {
-	// Validate temperature range specific to Deepseek (0-2)
+// SetCurrentTemperature sets the current temperature with Grok-specific validation
+func (p *GrokProvider) SetCurrentTemperature(temp float64) error {
+	// Validate temperature range specific to Grok (0-2)
 	if temp < 0 || temp > 2.0 {
-		return fmt.Errorf("Deepseek temperature must be between 0.0 and 2.0")
+		return fmt.Errorf("Grok temperature must be between 0.0 and 2.0. Higher values like 0.8 will make the output more random, while lower values like 0.2 will make it more focused and deterministic")
 	}
 
 	p.CurrentTemperature = temp
 	return nil
 }
 
-// chatRequest represents the request to the Deepseek chat API
-type chatRequest struct {
+// chatRequest represents the request to the Grok chat API
+type grokChatRequest struct {
 	Model       string        `json:"model"`
 	Messages    []ChatMessage `json:"messages"`
 	Temperature float64       `json:"temperature,omitempty"`
 	Stream      bool          `json:"stream,omitempty"`
 }
 
-// chatResponse represents the response from the Deepseek chat API
-type chatResponse struct {
+// chatResponse represents the response from the Grok chat API
+type grokChatResponse struct {
 	ID      string `json:"id"`
 	Object  string `json:"object"`
 	Created int64  `json:"created"`
@@ -105,32 +104,32 @@ type chatResponse struct {
 		Delta        ChatMessage `json:"delta,omitempty"`
 		FinishReason string      `json:"finish_reason"`
 	} `json:"choices"`
-	Error *errorResponse `json:"error,omitempty"`
+	Error *grokErrorResponse `json:"error,omitempty"`
 }
 
-// errorResponse represents an error from the Deepseek API
-type errorResponse struct {
+// errorResponse represents an error from the Grok API
+type grokErrorResponse struct {
 	Message string `json:"message"`
 	Type    string `json:"type"`
 	Param   string `json:"param"`
 	Code    string `json:"code"`
 }
 
-// SendChatRequest sends a chat request to the Deepseek API
-func (p *DeepseekProvider) SendChatRequest(messages []ChatMessage) (string, error) {
+// SendChatRequest sends a chat request to the Grok API
+func (p *GrokProvider) SendChatRequest(messages []ChatMessage) (string, error) {
 	// 检查 API Key 是否已设置
 	if p.APIKey == "" {
-		return "", fmt.Errorf("API key not set for Deepseek provider")
+		return "", fmt.Errorf("API key not set for Grok provider")
 	}
 
 	// 创建请求体
-	requestBody := chatRequest{
+	requestBody := grokChatRequest{
 		Model:       p.CurrentModel,
 		Messages:    messages,
 		Temperature: p.CurrentTemperature,
 	}
-	
-	util.DebugLog("Using Deepseek model: %s", p.CurrentModel)
+
+	util.DebugLog("Using Grok model: %s", p.CurrentModel)
 	util.DebugLog("Using temperature: %.1f", p.CurrentTemperature)
 
 	// 将请求体序列化为 JSON
@@ -141,7 +140,7 @@ func (p *DeepseekProvider) SendChatRequest(messages []ChatMessage) (string, erro
 	}
 
 	// 创建 HTTP 请求
-	req, err := http.NewRequest("POST", deepseekAPIURL, bytes.NewBuffer(jsonData))
+	req, err := http.NewRequest("POST", grokAPIURL, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return "", fmt.Errorf("error creating request: %v", err)
 	}
@@ -154,7 +153,7 @@ func (p *DeepseekProvider) SendChatRequest(messages []ChatMessage) (string, erro
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("error sending request: %v", err)
+		return "", fmt.Errorf("error connecting to Grok API: %v. Please check your internet connection and that the API is available.", err)
 	}
 	defer resp.Body.Close()
 
@@ -178,8 +177,6 @@ func (p *DeepseekProvider) SendChatRequest(messages []ChatMessage) (string, erro
 		if err := json.Unmarshal(body, &errorResp); err == nil && errorResp.Error.Message != "" {
 			// 处理特定类型的错误
 			switch {
-			case errorResp.Error.Message == "Insufficient Balance" || errorResp.Error.Code == "invalid_request_error":
-				return "", fmt.Errorf("Deepseek API account has insufficient balance. Please check your account or contact Deepseek support.")
 			case resp.StatusCode == 401:
 				return "", fmt.Errorf("Authentication failed. Please check your API key.")
 			default:
@@ -192,38 +189,43 @@ func (p *DeepseekProvider) SendChatRequest(messages []ChatMessage) (string, erro
 	}
 
 	// 解析响应
-	var chatResp chatResponse
+	var chatResp grokChatResponse
 	if err := json.Unmarshal(body, &chatResp); err != nil {
 		return "", fmt.Errorf("error parsing response: %v", err)
 	}
 
 	// 检查是否有选择
 	if len(chatResp.Choices) == 0 {
-		return "", fmt.Errorf("no response choices returned")
+		return "", fmt.Errorf("no response choices in API response")
 	}
 
-	// 返回第一个选择的内容
+	// 检查是否有错误
+	if chatResp.Error != nil {
+		return "", fmt.Errorf("API error: %s", chatResp.Error.Message)
+	}
+
+	// 返回响应内容
 	return chatResp.Choices[0].Message.Content, nil
 }
 
-// SendStreamingChatRequest sends a streaming chat request to the Deepseek API
-func (p *DeepseekProvider) SendStreamingChatRequest(messages []ChatMessage) (<-chan StreamResponse, error) {
+// SendStreamingChatRequest sends a streaming chat request to the Grok API
+func (p *GrokProvider) SendStreamingChatRequest(messages []ChatMessage) (<-chan StreamResponse, error) {
 	respChan := make(chan StreamResponse)
 
 	// 检查 API Key 是否已设置
 	if p.APIKey == "" {
-		return nil, fmt.Errorf("API key not set for Deepseek provider")
+		return nil, fmt.Errorf("API key not set for Grok provider")
 	}
 
 	// 创建请求体
-	requestBody := chatRequest{
+	requestBody := grokChatRequest{
 		Model:       p.CurrentModel,
 		Messages:    messages,
 		Temperature: p.CurrentTemperature,
 		Stream:      true,
 	}
 
-	util.DebugLog("Using Deepseek model: %s (streaming)", p.CurrentModel)
+	util.DebugLog("Using Grok model: %s (streaming)", p.CurrentModel)
 	util.DebugLog("Using temperature: %.1f", p.CurrentTemperature)
 
 	// 将请求体序列化为 JSON
@@ -233,7 +235,7 @@ func (p *DeepseekProvider) SendStreamingChatRequest(messages []ChatMessage) (<-c
 	}
 
 	// 创建 HTTP 请求
-	req, err := http.NewRequest("POST", deepseekAPIURL, bytes.NewBuffer(jsonData))
+	req, err := http.NewRequest("POST", grokAPIURL, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return nil, fmt.Errorf("error creating request: %v", err)
 	}
@@ -246,7 +248,7 @@ func (p *DeepseekProvider) SendStreamingChatRequest(messages []ChatMessage) (<-c
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("error sending request: %v", err)
+		return nil, fmt.Errorf("error connecting to Grok API: %v. Please check your internet connection and that the API is available.", err)
 	}
 
 	// 检查状态码
@@ -254,13 +256,13 @@ func (p *DeepseekProvider) SendStreamingChatRequest(messages []ChatMessage) (<-c
 		// 读取错误响应
 		respBody, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
-		
+
 		// 尝试解析错误响应
-		var errorResp chatResponse
+		var errorResp grokChatResponse
 		if err := json.Unmarshal(respBody, &errorResp); err == nil && errorResp.Error != nil {
 			return nil, fmt.Errorf("API error: %s", errorResp.Error.Message)
 		}
-		
+
 		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(respBody))
 	}
 
@@ -304,14 +306,14 @@ func (p *DeepseekProvider) SendStreamingChatRequest(messages []ChatMessage) (<-c
 
 			// Debug log the line for troubleshooting only when debug mode is enabled
 			if util.IsDebugMode() {
-				util.DebugLog("Deepseek stream line: %s", string(line))
+				util.DebugLog("Grok stream line: %s", string(line))
 			}
 
 			// Parse the response
-			var streamResp chatResponse
+			var streamResp grokChatResponse
 			if err := json.Unmarshal(line, &streamResp); err != nil {
 				if util.IsDebugMode() {
-					util.DebugLog("Error parsing Deepseek stream: %v (line: %s)", err, string(line))
+					util.DebugLog("Error parsing Grok stream: %v (line: %s)", err, string(line))
 				}
 				continue // Skip this line instead of breaking
 			}
@@ -336,10 +338,10 @@ func (p *DeepseekProvider) SendStreamingChatRequest(messages []ChatMessage) (<-c
 }
 
 // SetCurrentModel sets the current model after validating it
-func (p *DeepseekProvider) SetCurrentModel(model string) error {
+func (p *GrokProvider) SetCurrentModel(model string) error {
 	// 验证模型是否有效
 	valid := false
-	for _, m := range deepseekAvailableModels {
+	for _, m := range grokAvailableModels {
 		if m == model {
 			valid = true
 			break
@@ -347,20 +349,22 @@ func (p *DeepseekProvider) SetCurrentModel(model string) error {
 	}
 
 	if !valid {
-		return fmt.Errorf("invalid model: %s. Available models: %v", model, deepseekAvailableModels)
+		fmt.Printf("WARNING: Invalid model: %s. Available models: %v\n", model, grokAvailableModels)
+		return fmt.Errorf("invalid model: %s. Available models: %v", model, grokAvailableModels)
 	}
 
+	// 设置模型并输出调试信息
 	p.CurrentModel = model
-	util.DebugLog("Deepseek model set to: %s", model)
+	util.DebugLog("Grok model set to: %s", model)
 	return nil
 }
 
 // LoadConfig loads the provider configuration from the given map
-func (p *DeepseekProvider) LoadConfig(config map[string]interface{}) error {
+func (p *GrokProvider) LoadConfig(config map[string]interface{}) error {
 	// 加载 API Key
 	if apiKey, ok := config["api_key"].(string); ok {
 		p.APIKey = apiKey
-		util.DebugLog("Loaded API key for Deepseek provider")
+		util.DebugLog("Loaded API key for Grok provider")
 	}
 
 	// 加载当前模型
@@ -368,50 +372,43 @@ func (p *DeepseekProvider) LoadConfig(config map[string]interface{}) error {
 		util.DebugLog("Found model in config: %s", model)
 		if err := p.SetCurrentModel(model); err != nil {
 			// 如果模型无效，使用默认模型
-			p.CurrentModel = deepseekDefaultModel
+			fmt.Printf("WARNING: Invalid model in config, using default model: %s\n", grokDefaultModel)
+			p.CurrentModel = grokDefaultModel
 		}
 	} else {
 		// 如果没有设置模型，使用默认模型
-		util.DebugLog("No model found in config, using default model: %s", deepseekDefaultModel)
-		p.CurrentModel = deepseekDefaultModel
+		util.DebugLog("No model found in config, using default model: %s", grokDefaultModel)
+		p.CurrentModel = grokDefaultModel
 	}
 
 	// 加载温度设置
 	if temp, ok := config["temperature"].(float64); ok {
 		if err := p.SetCurrentTemperature(temp); err != nil {
 			// 如果温度无效，使用默认温度
-			p.CurrentTemperature = deepseekDefaultTemperature
+			p.CurrentTemperature = grokDefaultTemperature
 		}
 	} else {
 		// 如果没有设置温度，使用默认温度
-		p.CurrentTemperature = deepseekDefaultTemperature
+		p.CurrentTemperature = grokDefaultTemperature
 	}
 
 	return nil
 }
 
 // SaveConfig saves the provider configuration to the given map
-func (p *DeepseekProvider) SaveConfig(config map[string]interface{}) {
-	// 保存 API Key
+func (p *GrokProvider) SaveConfig(config map[string]interface{}) {
 	config["api_key"] = p.APIKey
-	
-	// 保存当前模型
 	config["model"] = p.CurrentModel
-	util.DebugLog("Saving Deepseek model to config: %s", p.CurrentModel)
-	
-	// 保存温度设置
 	config["temperature"] = p.CurrentTemperature
 }
 
 // IsReady returns whether the provider is ready to use
-// For Deepseek, the provider is ready if the API key is set
-func (p *DeepseekProvider) IsReady() bool {
+// For Grok, the provider is ready if the API key is set
+func (p *GrokProvider) IsReady() bool {
 	return p.APIKey != ""
 }
 
-
-
+// Register the provider
 func init() {
-	// Register the Deepseek provider
-	Register("deepseek", NewDeepseekProvider)
+	Register("grok", NewGrokProvider)
 }
