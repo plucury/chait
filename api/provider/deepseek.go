@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -89,6 +90,7 @@ type chatRequest struct {
 	Model       string        `json:"model"`
 	Messages    []ChatMessage `json:"messages"`
 	Temperature float64       `json:"temperature,omitempty"`
+	Stream      bool          `json:"stream,omitempty"`
 }
 
 // chatResponse represents the response from the Deepseek chat API
@@ -100,6 +102,7 @@ type chatResponse struct {
 	Choices []struct {
 		Index        int         `json:"index"`
 		Message      ChatMessage `json:"message"`
+		Delta        ChatMessage `json:"delta,omitempty"`
 		FinishReason string      `json:"finish_reason"`
 	} `json:"choices"`
 	Error *errorResponse `json:"error,omitempty"`
@@ -201,6 +204,135 @@ func (p *DeepseekProvider) SendChatRequest(messages []ChatMessage) (string, erro
 
 	// 返回第一个选择的内容
 	return chatResp.Choices[0].Message.Content, nil
+}
+
+// SendStreamingChatRequest sends a streaming chat request to the Deepseek API
+func (p *DeepseekProvider) SendStreamingChatRequest(messages []ChatMessage) (<-chan StreamResponse, error) {
+	respChan := make(chan StreamResponse)
+
+	// 检查 API Key 是否已设置
+	if p.APIKey == "" {
+		return nil, fmt.Errorf("API key not set for Deepseek provider")
+	}
+
+	// 创建请求体
+	requestBody := chatRequest{
+		Model:       p.CurrentModel,
+		Messages:    messages,
+		Temperature: p.CurrentTemperature,
+		Stream:      true,
+	}
+
+	util.DebugLog("Using Deepseek model: %s (streaming)", p.CurrentModel)
+	util.DebugLog("Using temperature: %.1f", p.CurrentTemperature)
+
+	// 将请求体序列化为 JSON
+	jsonData, err := json.Marshal(requestBody)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling request: %v", err)
+	}
+
+	// 创建 HTTP 请求
+	req, err := http.NewRequest("POST", deepseekAPIURL, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return nil, fmt.Errorf("error creating request: %v", err)
+	}
+
+	// 设置请求头
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+p.APIKey)
+
+	// 发送请求
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("error sending request: %v", err)
+	}
+
+	// 检查状态码
+	if resp.StatusCode != http.StatusOK {
+		// 读取错误响应
+		respBody, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		
+		// 尝试解析错误响应
+		var errorResp chatResponse
+		if err := json.Unmarshal(respBody, &errorResp); err == nil && errorResp.Error != nil {
+			return nil, fmt.Errorf("API error: %s", errorResp.Error.Message)
+		}
+		
+		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	// 启动 goroutine 处理流式响应
+	go func() {
+		defer resp.Body.Close()
+		defer close(respChan)
+
+		reader := bufio.NewReader(resp.Body)
+
+		for {
+			line, err := reader.ReadBytes('\n')
+			if err != nil {
+				if err != io.EOF {
+					respChan <- StreamResponse{Error: fmt.Errorf("error reading stream: %v", err)}
+				}
+				break
+			}
+
+			// Skip empty lines
+			line = bytes.TrimSpace(line)
+			if len(line) == 0 {
+				continue
+			}
+
+			// Remove "data: " prefix
+			if bytes.HasPrefix(line, []byte("data: ")) {
+				line = bytes.TrimPrefix(line, []byte("data: "))
+			}
+
+			// Check for stream end
+			if string(line) == "[DONE]" {
+				respChan <- StreamResponse{Done: true}
+				break
+			}
+
+			// Skip empty JSON objects or invalid lines
+			if string(line) == "{}" || len(line) == 0 {
+				continue
+			}
+
+			// Debug log the line for troubleshooting only when debug mode is enabled
+			if util.IsDebugMode() {
+				util.DebugLog("Deepseek stream line: %s", string(line))
+			}
+
+			// Parse the response
+			var streamResp chatResponse
+			if err := json.Unmarshal(line, &streamResp); err != nil {
+				if util.IsDebugMode() {
+					util.DebugLog("Error parsing Deepseek stream: %v (line: %s)", err, string(line))
+				}
+				continue // Skip this line instead of breaking
+			}
+
+			// Check for API errors
+			if streamResp.Error != nil {
+				respChan <- StreamResponse{Error: fmt.Errorf("API error: %s", streamResp.Error.Message)}
+				break
+			}
+
+			// Extract content from choices
+			if len(streamResp.Choices) > 0 {
+				content := streamResp.Choices[0].Delta.Content
+				if content != "" {
+					respChan <- StreamResponse{Content: content}
+				}
+			}
+		}
+	}()
+
+	return respChan, nil
 }
 
 // SetCurrentModel sets the current model after validating it

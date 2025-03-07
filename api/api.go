@@ -129,6 +129,40 @@ func SendChatRequest(apiKey string, messages []ChatMessage, model string, temper
 	return activeProvider.SendChatRequest(messages)
 }
 
+// SendStreamingChatRequest 发送流式聊天请求到当前活跃的 provider
+// 返回一个通道，用于接收流式响应
+func SendStreamingChatRequest(apiKey string, messages []ChatMessage, model string, temperature float64) (<-chan provider.StreamResponse, error) {
+	util.DebugLog("Sending streaming chat request to provider: %s", activeProvider.GetName())
+	
+	// 如果提供了 API key，设置到 provider 中
+	if apiKey != "" {
+		util.DebugLog("Setting API key for provider: %s", activeProvider.GetName())
+		activeProvider.SetAPIKey(apiKey)
+	}
+
+	// 如果提供了模型，设置到 provider 中
+	if model != "" {
+		util.DebugLog("Setting model for provider %s: %s", activeProvider.GetName(), model)
+		if err := activeProvider.SetCurrentModel(model); err != nil {
+			util.DebugLog("Error setting model for provider %s: %v", activeProvider.GetName(), err)
+			return nil, err
+		}
+	}
+
+	// 如果提供了温度，设置到 provider 中
+	if temperature != 0 {
+		util.DebugLog("Setting temperature for provider %s: %.1f", activeProvider.GetName(), temperature)
+		if err := activeProvider.SetCurrentTemperature(temperature); err != nil {
+			util.DebugLog("Error setting temperature for provider %s: %v", activeProvider.GetName(), err)
+			return nil, err
+		}
+	}
+
+	// 发送流式请求
+	util.DebugLog("Sending streaming request to %s with %d messages", activeProvider.GetName(), len(messages))
+	return activeProvider.SendStreamingChatRequest(messages)
+}
+
 // GetAvailableProviders 返回所有可用的 provider 实例
 func GetAvailableProviders() []provider.Provider {
 	// 直接返回 provider 实例列表

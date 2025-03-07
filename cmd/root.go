@@ -295,6 +295,17 @@ func loadProviderConfigurations() {
 			fmt.Printf("Warning: Error loading configuration for provider %s: %v\n", providerName, err)
 		}
 	}
+	
+	// Set the active provider based on the config file
+	configuredProvider := viper.GetString("provider")
+	if configuredProvider != "" {
+		DebugLog("Setting active provider from config: %s", configuredProvider)
+		if err := api.SetActiveProvider(configuredProvider); err != nil {
+			fmt.Printf("Warning: Error setting active provider to %s: %v\n", configuredProvider, err)
+		} else {
+			DebugLog("Successfully set active provider to: %s", configuredProvider)
+		}
+	}
 }
 
 func init() {
@@ -702,10 +713,12 @@ func startInteractiveMode() {
 				Content: input,
 			})
 
-			// Send request to AI provider
+			// Send request to AI provider using streaming API
 			fmt.Println("Thinking...")
-			DebugLog("Sending chat request to provider %s with %d messages", provider.GetName(), len(messages))
-			response, err := api.SendChatRequest("", messages, "", 0)
+			DebugLog("Sending streaming chat request to provider %s with %d messages", provider.GetName(), len(messages))
+			
+			// Use streaming API
+			streamChan, err := api.SendStreamingChatRequest("", messages, "", 0)
 			if err != nil {
 				// Handle specific errors
 				errMsg := err.Error()
@@ -724,13 +737,37 @@ func startInteractiveMode() {
 				continue
 			}
 
-			// Print the AI's response
-			fmt.Println("\n" + response + "\n")
+			// Print a newline before starting to stream the response
+			fmt.Println()
+
+			// Collect the full response while streaming it to the console
+			var fullResponse strings.Builder
+
+			// Process streaming responses
+			for streamResp := range streamChan {
+				if streamResp.Error != nil {
+					fmt.Printf("\nStreaming error: %v\n\n", streamResp.Error)
+					break
+				}
+
+				if streamResp.Done {
+					break
+				}
+
+				// Print the content chunk without a newline to create a streaming effect
+				if streamResp.Content != "" {
+					fmt.Print(streamResp.Content)
+					fullResponse.WriteString(streamResp.Content)
+				}
+			}
+
+			// Print a newline after the response is complete
+			fmt.Println("\n")
 
 			// Add AI response to history
 			messages = append(messages, api.ChatMessage{
 				Role:    "assistant",
-				Content: response,
+				Content: fullResponse.String(),
 			})
 
 			// If the history is too long, it can be trimmed
