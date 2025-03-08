@@ -9,6 +9,7 @@ Chait is a Golang-based command-line tool that allows you to have natural, fluid
 ### 💬 Command-Line AI Chat
 - **Seamless Terminal Experience**: Chat with AI directly in your familiar command-line environment without switching applications
 - **Interactive Chat Mode**: Support for multi-turn conversations with context continuity
+- **Non-Interactive Mode**: Quick one-off queries without entering interactive mode using -n flag
 - **Streaming Responses**: See AI responses in real-time as they're generated
 - **Instant Responses**: Quickly get AI answers to boost your productivity
 
@@ -83,8 +84,47 @@ chait --version or chait -v
 # Interactively select a provider
 chait --provider or chait -p
 
-# Start interactive chat mode
+# Start interactive chat mode (default)
 chait
+```
+
+### Quick Query Mode
+Use `-n` (or `--no-interaction`) flag to get quick answers without entering interactive mode:
+
+```bash
+# Single question
+chait -n "Your question here"
+
+# Multiple arguments
+chait -n "Tell me about" "the history of" "AI"
+```
+
+### Piped Input
+Chait supports receiving input from pipes, which is useful for processing command outputs or file contents:
+
+```bash
+# Process command output with AI
+ls -la | chait -n "Explain what these files are"
+
+# Get AI explanation of a code file
+cat main.go | chait -n "Explain this code"
+
+# Analyze log files
+grep ERROR app.log | chait -n "What might be causing these errors?"
+```
+
+#### Piped Input with Interactive Mode
+When using piped input without the `-n` flag, chait will process the input and then enter interactive mode, allowing for follow-up questions:
+
+```bash
+# Process command output and enter interactive mode for follow-up questions
+ls -la | chait
+
+# Analyze a file and have a conversation about it
+cat config.json | chait
+
+# Review git changes and discuss them interactively
+git diff | chait
 ```
 
 ### Interactive Mode Commands
