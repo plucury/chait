@@ -3,6 +3,7 @@ package cmd
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -11,7 +12,6 @@ import (
 	"github.com/chzyer/readline"
 
 	"github.com/plucury/chait/api"
-	"github.com/plucury/chait/api/provider"
 	"github.com/plucury/chait/util"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -20,13 +20,15 @@ import (
 var cfgFile string
 
 // Version represents the current version of the application
-const Version = "0.0.1"
+const Version = "0.0.4"
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
 	Use:   "chait",
 	Short: "A AI chat command-line tool",
 	Long:  `A AI chat command-line tool built with Cobra. support providers: openai, deepseek`,
+	// Allow arbitrary arguments to be passed
+	Args: cobra.ArbitraryArgs,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
 		// Skip loading provider configurations for version command
 		if showVersion {
@@ -133,14 +135,100 @@ var rootCmd = &cobra.Command{
 			fmt.Printf("Switched to ready provider: %s\n", provider.GetName())
 		}
 
-		// API key is set, enter interactive mode
-		startInteractiveMode()
+		// Check if there's piped input
+		stat, _ := os.Stdin.Stat()
+		hasPipedInput := (stat.Mode() & os.ModeCharDevice) == 0
+
+		// We'll handle the -i flag without argument case in a simpler way
+
+		// If there's piped input, read it
+		if hasPipedInput {
+			DebugLog("Detected piped input")
+			reader := bufio.NewReader(os.Stdin)
+			pipedInput, err := io.ReadAll(reader)
+			if err != nil {
+				fmt.Printf("Error reading piped input: %v\n", err)
+				return
+			}
+
+			// Use the piped input as the input message
+			inputMessage = strings.TrimSpace(string(pipedInput))
+		}
+
+		// No special case handling here - we'll handle it in a cleaner way
+
+		// Get input from arguments if provided
+		if len(args) > 0 {
+			// 如果已经有管道输入，则将命令行参数添加到管道输入后面，而不是覆盖它
+			if inputMessage != "" {
+				inputMessage = inputMessage + "\n\n" + strings.Join(args, " ")
+			} else {
+				inputMessage = strings.Join(args, " ")
+			}
+		}
+
+		// If we have any input (from arguments or piped input)
+		if inputMessage != "" {
+			// If we're entering interactive mode (no -n flag), print welcome message first
+			if !noInteraction {
+				printWelcomeMessage()
+			}
+
+			// Create a single message
+			messages := []api.ChatMessage{
+				{Role: "user", Content: inputMessage},
+			}
+
+			// Send request to AI provider
+			fmt.Print("Thinking...\n")
+			DebugLog("Sending chat request to provider %s with message: %s", provider.GetName(), inputMessage)
+
+			// Use streaming API for better user experience
+			streamChan, err := api.SendStreamingChatRequest("", messages, "", 0)
+			if err != nil {
+				fmt.Printf("\nError: %v\n\n", err.Error())
+				return
+			}
+
+			// Process streaming response
+			var fullResponse strings.Builder
+			for streamResp := range streamChan {
+				if streamResp.Error != nil {
+					fmt.Printf("\nError: %v\n\n", streamResp.Error)
+					return
+				}
+				fmt.Print(streamResp.Content)
+				fullResponse.WriteString(streamResp.Content)
+			}
+			// 确保在响应后有足够的换行
+			fmt.Println("\n")
+
+			// If no-interaction mode is enabled, return after sending the message
+			if noInteraction {
+				return
+			}
+
+			// Always continue with interactive mode when not in no-interaction mode
+			// regardless of whether the input came from arguments or pipe
+			startInteractiveModeWithoutWelcome()
+			return
+		}
+
+		// No input messages, check if we should enter interactive mode
+		if !noInteraction {
+			// Print welcome message
+			printWelcomeMessage()
+			// Start interactive mode without printing welcome again
+			startInteractiveModeWithoutWelcome()
+		}
 	},
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
 // This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute() {
+	// No special handling needed for boolean flags
+
 	err := rootCmd.Execute()
 	if err != nil {
 		os.Exit(1)
@@ -152,6 +240,12 @@ var showVersion bool
 
 // Whether to interactively select a provider
 var selectProvider bool
+
+// Whether to run in non-interactive mode
+var noInteraction bool
+
+// Input message to send to the AI
+var inputMessage string
 
 // configureProvider prompts the user to select and configure a provider
 func configureProvider() error {
@@ -267,8 +361,10 @@ func configureProvider() error {
 		fmt.Printf("WARNING: Provider %s is still not ready after configuration.\n", providerName)
 		fmt.Println("Please check your API key and try again.")
 	} else {
-		// start interactive mode
-		startInteractiveMode()
+		// Print welcome message
+		printWelcomeMessage()
+		// Start interactive mode without printing welcome again
+		startInteractiveModeWithoutWelcome()
 	}
 
 	return nil
@@ -295,7 +391,7 @@ func loadProviderConfigurations() {
 			fmt.Printf("Warning: Error loading configuration for provider %s: %v\n", providerName, err)
 		}
 	}
-	
+
 	// Set the active provider based on the config file
 	configuredProvider := viper.GetString("provider")
 	if configuredProvider != "" {
@@ -311,10 +407,14 @@ func loadProviderConfigurations() {
 func init() {
 	cobra.OnInitialize(initConfig)
 
+	// No wrapper needed with our new approach
+
 	// Add version flag
 	rootCmd.Flags().BoolVarP(&showVersion, "version", "v", false, "Display the current version of chait")
 	// Add provider selection flag
 	rootCmd.Flags().BoolVarP(&selectProvider, "provider", "p", false, "Interactively select a provider")
+	// Add no-interaction flag to skip interactive mode
+	rootCmd.Flags().BoolVarP(&noInteraction, "no-interaction", "n", false, "Send message without entering interactive mode")
 
 	// Here you will define your flags and configuration settings.
 	// Cobra supports persistent flags, which, if defined here,
@@ -336,23 +436,46 @@ func displayHelpCommands() {
 	fmt.Println("  :quit, :q        - Exit the interactive mode")
 }
 
-func startInteractiveMode() {
+// printWelcomeMessage prints the welcome message for interactive mode
+func printWelcomeMessage() {
 	// Get the active provider
-	var provider provider.Provider
-	var currentModel string
-	var currentTemperature float64
+	provider := api.GetActiveProvider()
+	currentModel := provider.GetCurrentModel()
+	currentTemperature := provider.GetCurrentTemperature()
 
-	// Initialize provider and settings
-	provider = api.GetActiveProvider()
-	currentModel = provider.GetCurrentModel()
-	currentTemperature = provider.GetCurrentTemperature()
+	fmt.Println()
 	fmt.Println("Welcome to chait interactive mode!")
 	fmt.Printf("Provider: %s (Model: %s, Temperature: %.1f)\n", provider.GetName(), currentModel, currentTemperature)
 	fmt.Println("Type ':help' or ':h' to see all available commands.")
 	fmt.Println("-----------------------------------")
+}
 
-	// Use the readline library to handle terminal input, providing better line editing capabilities
-	rl, err := readline.New("> ")
+// startInteractiveModeWithoutWelcome starts the interactive mode.
+// Note: This function does not print the welcome message. Call printWelcomeMessage() first if needed.
+func startInteractiveModeWithoutWelcome() {
+	// Get the active provider
+	provider := api.GetActiveProvider()
+	currentModel := provider.GetCurrentModel()
+	currentTemperature := provider.GetCurrentTemperature()
+
+	// 重新打开终端以确保交互模式正常工作，特别是在管道输入的情况下
+	terminal, err := os.Open("/dev/tty")
+	if err != nil {
+		fmt.Printf("Error opening terminal: %v\n", err)
+		return
+	}
+	defer terminal.Close()
+
+	// 使用打开的终端作为readline的输入源
+	rl, err := readline.NewEx(&readline.Config{
+		Prompt:          "> ",
+		Stdin:           terminal,
+		Stdout:          os.Stdout, // 确保输出到标准输出
+		HistoryLimit:    100,
+		HistoryFile:     filepath.Join(os.TempDir(), "chait_history"),
+		InterruptPrompt: "^C",
+		EOFPrompt:       "exit",
+	})
 	if err != nil {
 		fmt.Printf("Error initializing readline: %v\n", err)
 		return
@@ -367,6 +490,9 @@ func startInteractiveMode() {
 		Role:    "system",
 		Content: "You are a helpful assistant.",
 	})
+
+	// 确保第一个提示符显示
+	fmt.Print("> ")
 
 	for {
 		// Use readline to read user input, providing better line editing capabilities
@@ -698,11 +824,6 @@ func startInteractiveMode() {
 				}
 				continue
 			}
-
-			// If it's an unknown command
-			fmt.Printf("Unknown command: %s\n", cmd)
-			fmt.Println("Type :help for available commands.")
-			continue
 		}
 
 		// Process other commands entered by the user
@@ -716,21 +837,13 @@ func startInteractiveMode() {
 			// Send request to AI provider using streaming API
 			fmt.Println("Thinking...")
 			DebugLog("Sending streaming chat request to provider %s with %d messages", provider.GetName(), len(messages))
-			
+
 			// Use streaming API
 			streamChan, err := api.SendStreamingChatRequest("", messages, "", 0)
 			if err != nil {
 				// Handle specific errors
 				errMsg := err.Error()
 				fmt.Printf("\nError: %v\n\n", errMsg)
-
-				// Check if it's an insufficient balance error
-				if strings.Contains(errMsg, "insufficient balance") || strings.Contains(errMsg, "Insufficient Balance") {
-					fmt.Println("Your Deepseek API account has insufficient balance.")
-					fmt.Println("Please check your account at https://platform.deepseek.com/")
-					fmt.Println("You can continue using the CLI with a different API key by running:")
-					fmt.Println("  chait config providers.deepseek.api_key YOUR_NEW_API_KEY")
-				}
 
 				// Remove the last user message from history because the request failed
 				messages = messages[:len(messages)-1]
@@ -763,6 +876,9 @@ func startInteractiveMode() {
 
 			// Print a newline after the response is complete
 			fmt.Println("\n")
+
+			// 手动刷新提示符，确保它显示在响应之后
+			rl.Refresh()
 
 			// Add AI response to history
 			messages = append(messages, api.ChatMessage{
