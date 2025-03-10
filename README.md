@@ -1,6 +1,30 @@
 # chait
 
-🤖 **Chat with AI directly from your command line!**
+🤖 **Chat with AI directly from your command line and more!**
+
+## Quick Start
+
+```bash
+# Ask a quick question (non-interactive mode is default)
+chait "What is the capital of France?"
+
+# Process command output with AI
+ls -la | chait "Explain what these files are"
+
+# Get AI explanation of a code file
+cat main.go | chait "Explain this code"
+
+# Start interactive chat mode for multi-turn conversations
+chait -i
+
+# Start interactive mode with an initial question
+chait -i "Tell me about quantum computing"
+
+# Analyze a file and have a conversation about it
+cat config.json | chait -i
+```
+
+## Overview
 
 Chait is a Golang-based command-line tool that allows you to have natural, fluid conversations with various AI models without leaving your terminal. Whether you're a developer, system administrator, or command-line enthusiast, chait provides a convenient AI interaction experience right where you work.
 
@@ -8,8 +32,8 @@ Chait is a Golang-based command-line tool that allows you to have natural, fluid
 
 ### 💬 Command-Line AI Chat
 - **Seamless Terminal Experience**: Chat with AI directly in your familiar command-line environment without switching applications
-- **Interactive Chat Mode**: Support for multi-turn conversations with context continuity
-- **Non-Interactive Mode**: Quick one-off queries without entering interactive mode using -n flag
+- **Quick Query Mode**: By default, get quick answers without entering interactive mode
+- **Interactive Chat Mode**: Support for multi-turn conversations with context continuity using -i flag
 - **Streaming Responses**: See AI responses in real-time as they're generated
 - **Instant Responses**: Quickly get AI answers to boost your productivity
 
@@ -70,81 +94,100 @@ Alternatively, you can manually download the appropriate binary for your system 
 - Models: grok-2-1212
 - Temperature range: 0.0-2.0 (Higher values like 0.8 make output more random, lower values like 0.2 make it more focused)
 
-## Usage
+## Usage Guide
 
-### Basic Commands
+### Command Structure
 
 ```bash
-# Show help information
-chait --help
-
-# Display the current version
-chait --version or chait -v
-
-# Interactively select a provider
-chait --provider or chait -p
-
-# Start interactive chat mode (default)
-chait
+chait [options] ["your question here"]
 ```
 
-### Quick Query Mode
-Use `-n` (or `--no-interaction`) flag to get quick answers without entering interactive mode:
+### Common Options
+
+```bash
+-i, --interactive    # Enter interactive mode for multi-turn conversations
+-p, --provider       # Interactively select a provider
+-m, --model          # Interactively select a model for the current provider
+-t, --temperature    # Interactively set temperature for the current provider
+-v, --version        # Display the current version
+--help               # Show help information
+```
+
+### Usage Modes
+
+#### 1. Quick Query Mode (Default)
+
+By default, chait runs in non-interactive mode for quick answers:
 
 ```bash
 # Single question
-chait -n "Your question here"
+chait "What is the capital of France?"
 
-# Multiple arguments
-chait -n "Tell me about" "the history of" "AI"
+# Multiple arguments combined as one question
+chait "Tell me about" "the history of" "AI"
 ```
 
-### Piped Input
-Chait supports receiving input from pipes, which is useful for processing command outputs or file contents:
+#### 2. Interactive Mode
+
+Use `-i` flag to enter interactive mode for multi-turn conversations:
 
 ```bash
-# Process command output with AI
-ls -la | chait -n "Explain what these files are"
+# Start interactive mode with a question
+chait -i "Tell me about quantum computing"
 
-# Get AI explanation of a code file
-cat main.go | chait -n "Explain this code"
-
-# Analyze log files
-grep ERROR app.log | chait -n "What might be causing these errors?"
+# Start interactive mode without an initial question
+chait -i
 ```
 
-#### Piped Input with Interactive Mode
-When using piped input without the `-n` flag, chait will process the input and then enter interactive mode, allowing for follow-up questions:
+#### 3. Model Selection
+
+Interactively select a model for the current provider:
 
 ```bash
-# Process command output and enter interactive mode for follow-up questions
-ls -la | chait
+# Select a model interactively
+chait -m
 
-# Analyze a file and have a conversation about it
-cat config.json | chait
+```
 
-# Review git changes and discuss them interactively
-git diff | chait
+#### 4. Temperature Setting
+
+Interactively set the temperature for the current provider:
+
+```bash
+# Set temperature interactively
+chait -t
+
+```
+
+#### 5. Piped Input
+
+Process command outputs or file contents:
+
+```bash
+# Process command output with AI (non-interactive mode)
+ls -la | chait "Explain these files"
+
+# Analyze code
+cat main.go | chait "What does this code do?"
+
+# Analyze logs
+grep ERROR app.log | chait "Explain these errors"
+
+# Process input and enter interactive mode for follow-up questions
+ls -la | chait -i "Explain these files"
+cat config.json | chait -i
+git diff | chait -i
 ```
 
 ### Interactive Mode Commands
 
-```bash
-# Show help information
-:help or :h
+When in interactive mode, you can use these special commands:
 
-# Start a new conversation
-:clear or :c
-
-# Switch between available models for the current provider
-:model
-
-# Set the temperature parameter
-:temperature or :temp
-
-# Configure or switch provider
-:provider
-
-# Exit interactive mode
-:quit or :q
+```
+:help, :h       # Show help information
+:clear, :c      # Start a new conversation
+:model          # Switch between available models
+:temperature, :temp  # Set the temperature parameter
+:provider       # Configure or switch provider
+:quit, :q       # Exit interactive mode
 ```
