@@ -20,13 +20,13 @@ import (
 var cfgFile string
 
 // Version represents the current version of the application
-const Version = "0.0.4"
+const Version = "0.1.0"
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
 	Use:   "chait",
-	Short: "A AI chat command-line tool",
-	Long:  `A AI chat command-line tool built with Cobra. support providers: openai, deepseek`,
+	Short: "A AI chat command-line tool and more",
+	Long:  `A AI chat command-line tool built with Cobra. support providers: openai, deepseek, grok`,
 	// Allow arbitrary arguments to be passed
 	Args: cobra.ArbitraryArgs,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
@@ -52,13 +52,234 @@ var rootCmd = &cobra.Command{
 				fmt.Printf("Error configuring provider: %v\n", err)
 				return
 			}
-			fmt.Println("Provider configured successfully. Run 'chait' to start interactive mode.")
 			return
 		}
 
 		// Get the currently used provider from configuration
 		providerName := viper.GetString("provider")
 
+		// Check if we need to interactively set temperature
+		if setTemperatureInteractive {
+			// Get the active provider
+			provider := api.GetActiveProvider()
+			if provider == nil {
+				fmt.Println("No active provider found. Please configure a provider first.")
+				return
+			}
+
+			currentModel := provider.GetCurrentModel()
+			currentTemperature := provider.GetCurrentTemperature()
+
+			// Check if the current model supports temperature settings
+			if provider.GetName() == "openai" && (currentModel == "o1" || currentModel == "o3-mini") {
+				fmt.Printf("Note: The current model '%s' does not support temperature settings. Temperature will be ignored.\n\n", currentModel)
+			}
+
+			// Get provider-specific temperature presets
+			providerPresets := provider.GetTemperaturePresets()
+
+			fmt.Printf("Current temperature for %s: %.1f\n\n", provider.GetName(), currentTemperature)
+			fmt.Println("Available temperature presets:")
+
+			// Display provider-specific presets if available
+			var presets []api.TemperaturePreset
+			if len(providerPresets) > 0 {
+				presets = providerPresets
+				for i, preset := range providerPresets {
+					fmt.Printf("  %d. %s (%.1f) - %s%s\n", i+1, preset.Name, preset.Value, preset.Description, func() string {
+						if preset.Value == currentTemperature {
+							return " (current)"
+						}
+						return ""
+					}())
+				}
+			} else {
+				// Fall back to generic presets if provider doesn't have specific ones
+				presets = api.TemperaturePresets
+				for i, preset := range api.TemperaturePresets {
+					fmt.Printf("  %d. %s (%.1f) - %s%s\n", i+1, preset.Name, preset.Value, preset.Description, func() string {
+						if preset.Value == currentTemperature {
+							return " (current)"
+						}
+						return ""
+					}())
+				}
+			}
+
+			// Determine the max temperature based on the provider
+			maxTemp := 2.0
+			if provider.GetName() == "openai" {
+				maxTemp = 1.0
+			}
+			fmt.Printf("  C. Custom - Enter a custom temperature value (0.0-%.1f)\n", maxTemp)
+
+			// Create an input reader
+			reader := bufio.NewReader(os.Stdin)
+
+			// Prompt the user to select a temperature preset
+			fmt.Print("\nEnter preset number or 'C' for custom (or press Enter to cancel): ")
+			tempInput, err := reader.ReadString('\n')
+			if err != nil {
+				fmt.Printf("Error reading input: %v\n", err)
+				return
+			}
+
+			// Process the input
+			tempInput = strings.TrimSpace(tempInput)
+			if tempInput == "" {
+				fmt.Println("Temperature change canceled.")
+				return
+			}
+
+			// Handle custom temperature
+			var newTemperature float64
+			if tempInput == "C" || tempInput == "c" {
+				// Prompt for custom temperature
+				fmt.Printf("Enter custom temperature (0.0-%.1f): ", maxTemp)
+				customTemp, err := reader.ReadString('\n')
+				if err != nil {
+					fmt.Printf("Error reading input: %v\n", err)
+					return
+				}
+				customTemp = strings.TrimSpace(customTemp)
+				tempValue, err := strconv.ParseFloat(customTemp, 64)
+				if err != nil || tempValue < 0 || tempValue > maxTemp {
+					fmt.Printf("Invalid temperature value. Please enter a number between 0.0 and %.1f.\n", maxTemp)
+					return
+				}
+				newTemperature = tempValue
+			} else {
+				// Handle preset temperature
+				tempNum, err := strconv.Atoi(tempInput)
+				if err != nil || tempNum < 1 || tempNum > len(presets) {
+					fmt.Println("Invalid preset number. Please try again.")
+					return
+				}
+				newTemperature = presets[tempNum-1].Value
+			}
+
+			// Check if temperature is already set to the selected value
+			if newTemperature == currentTemperature {
+				fmt.Printf("Temperature is already set to %.1f\n", newTemperature)
+				return
+			}
+
+			// Set the provider's temperature
+			if err := provider.SetCurrentTemperature(newTemperature); err != nil {
+				fmt.Printf("Error setting temperature: %v\n", err)
+				return
+			}
+
+			// Save provider configuration
+			config := make(map[string]interface{})
+			provider.SaveConfig(config)
+
+			// Save to viper
+			for k, v := range config {
+				viper.Set(fmt.Sprintf("providers.%s.%s", provider.GetName(), k), v)
+			}
+
+			// Write to the configuration file
+			if err := viper.WriteConfig(); err != nil {
+				fmt.Printf("Error saving temperature setting: %v\n", err)
+			}
+
+			fmt.Printf("Temperature for %s set to %.1f and saved to config.\n", provider.GetName(), newTemperature)
+			return
+		}
+
+		// Check if we need to interactively select a model
+		if selectModelInteractive {
+			// Get the active provider
+			provider := api.GetActiveProvider()
+			if provider == nil {
+				fmt.Println("No active provider found. Please configure a provider first.")
+				return
+			}
+
+			// Get the current model
+			currentModel := provider.GetCurrentModel()
+
+			fmt.Printf("Current model: %s\n\n", currentModel)
+			fmt.Println("Available models for provider: " + provider.GetName())
+
+			// Get the available models for the current provider
+			availableModels := provider.GetAvailableModels()
+			if len(availableModels) == 0 {
+				fmt.Println("No available models found for this provider.")
+				return
+			}
+
+			// Display available models
+			for i, model := range availableModels {
+				fmt.Printf("  %d. %s%s\n", i+1, model, func() string {
+					if model == currentModel {
+						return " (current)"
+					}
+					return ""
+				}())
+			}
+
+			// Create an input reader
+			reader := bufio.NewReader(os.Stdin)
+
+			// Prompt the user to select a model
+			fmt.Print("\nEnter model number to switch (or press Enter to cancel): ")
+			modelInput, err := reader.ReadString('\n')
+			if err != nil {
+				fmt.Printf("Error reading input: %v\n", err)
+				return
+			}
+
+			// Process the input
+			modelInput = strings.TrimSpace(modelInput)
+			if modelInput == "" {
+				fmt.Println("Model switch canceled.")
+				return
+			}
+
+			// Convert user input to integer
+			modelNum, err := strconv.Atoi(modelInput)
+			if err != nil {
+				fmt.Println("Invalid model number. Please try again.")
+				return
+			}
+
+			// Set the new model
+			if modelNum < 1 || modelNum > len(availableModels) {
+				fmt.Println("Invalid model number. Please try again.")
+				return
+			}
+
+			newModel := availableModels[modelNum-1]
+			if newModel == currentModel {
+				fmt.Printf("Already using model: %s\n", newModel)
+				return
+			}
+
+			// Set the new model
+			if err := provider.SetCurrentModel(newModel); err != nil {
+				fmt.Printf("Error setting model: %v\n", err)
+				return
+			}
+
+			// Save provider configuration
+			config := make(map[string]interface{})
+			provider.SaveConfig(config)
+
+			// Save to viper
+			for k, v := range config {
+				viper.Set(fmt.Sprintf("providers.%s.%s", provider.GetName(), k), v)
+			}
+
+			// Write to the configuration file
+			if err := viper.WriteConfig(); err != nil {
+				fmt.Printf("Error saving model setting: %v\n", err)
+			}
+
+			fmt.Printf("Switched to model: %s\n", newModel)
+			return
+		}
 		// If no provider is configured, prompt the user to select one
 		if providerName == "" {
 			fmt.Println("No provider selected. Let's choose one.")
@@ -169,8 +390,8 @@ var rootCmd = &cobra.Command{
 
 		// If we have any input (from arguments or piped input)
 		if inputMessage != "" {
-			// If we're entering interactive mode (no -n flag), print welcome message first
-			if !noInteraction {
+			// If we're entering interactive mode (with -i flag), print welcome message first
+			if interactiveMode {
 				printWelcomeMessage()
 			}
 
@@ -180,7 +401,9 @@ var rootCmd = &cobra.Command{
 			}
 
 			// Send request to AI provider
-			fmt.Print("Thinking...\n")
+			if interactiveMode {
+				fmt.Print("Thinking...\n")
+			}
 			DebugLog("Sending chat request to provider %s with message: %s", provider.GetName(), inputMessage)
 
 			// Use streaming API for better user experience
@@ -201,10 +424,10 @@ var rootCmd = &cobra.Command{
 				fullResponse.WriteString(streamResp.Content)
 			}
 			// 确保在响应后有足够的换行
-			fmt.Println("\n")
+			fmt.Println()
 
-			// If no-interaction mode is enabled, return after sending the message
-			if noInteraction {
+			// If interactive mode is not enabled, return after sending the message
+			if !interactiveMode {
 				return
 			}
 
@@ -215,7 +438,7 @@ var rootCmd = &cobra.Command{
 		}
 
 		// No input messages, check if we should enter interactive mode
-		if !noInteraction {
+		if interactiveMode {
 			// Print welcome message
 			printWelcomeMessage()
 			// Start interactive mode without printing welcome again
@@ -241,11 +464,17 @@ var showVersion bool
 // Whether to interactively select a provider
 var selectProvider bool
 
-// Whether to run in non-interactive mode
-var noInteraction bool
+// Whether to run in interactive mode
+var interactiveMode bool
 
 // Input message to send to the AI
 var inputMessage string
+
+// Whether to interactively select a model
+var selectModelInteractive bool
+
+// Whether to interactively set temperature
+var setTemperatureInteractive bool
 
 // configureProvider prompts the user to select and configure a provider
 func configureProvider() error {
@@ -361,10 +590,7 @@ func configureProvider() error {
 		fmt.Printf("WARNING: Provider %s is still not ready after configuration.\n", providerName)
 		fmt.Println("Please check your API key and try again.")
 	} else {
-		// Print welcome message
-		printWelcomeMessage()
-		// Start interactive mode without printing welcome again
-		startInteractiveModeWithoutWelcome()
+		fmt.Printf("Provider %s configured successfully!\n", providerName)
 	}
 
 	return nil
@@ -413,8 +639,12 @@ func init() {
 	rootCmd.Flags().BoolVarP(&showVersion, "version", "v", false, "Display the current version of chait")
 	// Add provider selection flag
 	rootCmd.Flags().BoolVarP(&selectProvider, "provider", "p", false, "Interactively select a provider")
-	// Add no-interaction flag to skip interactive mode
-	rootCmd.Flags().BoolVarP(&noInteraction, "no-interaction", "n", false, "Send message without entering interactive mode")
+	// Add interactive mode flag to enter interactive mode
+	rootCmd.Flags().BoolVarP(&interactiveMode, "interactive", "i", false, "Enter interactive mode after sending message")
+	// Add model selection flag
+	rootCmd.Flags().BoolVarP(&selectModelInteractive, "model", "m", false, "Interactively select a model for the current provider")
+	// Add temperature setting flag
+	rootCmd.Flags().BoolVarP(&setTemperatureInteractive, "temperature", "t", false, "Interactively set temperature for the current provider")
 
 	// Here you will define your flags and configuration settings.
 	// Cobra supports persistent flags, which, if defined here,
@@ -835,7 +1065,9 @@ func startInteractiveModeWithoutWelcome() {
 			})
 
 			// Send request to AI provider using streaming API
-			fmt.Println("Thinking...")
+			if interactiveMode {
+				fmt.Println("Thinking...")
+			}
 			DebugLog("Sending streaming chat request to provider %s with %d messages", provider.GetName(), len(messages))
 
 			// Use streaming API
@@ -875,7 +1107,7 @@ func startInteractiveModeWithoutWelcome() {
 			}
 
 			// Print a newline after the response is complete
-			fmt.Println("\n")
+			fmt.Println()
 
 			// 手动刷新提示符，确保它显示在响应之后
 			rl.Refresh()
@@ -928,7 +1160,10 @@ func initConfig() {
 
 		// Set up config in ~/.config/chait directory with name "config.json"
 		configDir = filepath.Join(home, ".config", "chait")
-		fmt.Printf("Config directory: %s\n", configDir)
+		// 仅在交互模式下打印配置目录信息
+		if len(os.Args) > 1 && (os.Args[1] == "-i" || os.Args[1] == "--interactive") {
+			fmt.Printf("Config directory: %s\n", configDir)
+		}
 
 		// Create config directory if it doesn't exist
 		if err := os.MkdirAll(configDir, 0755); err != nil {
