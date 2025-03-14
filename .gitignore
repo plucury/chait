@@ -44,3 +44,5 @@ Thumbs.db
 # Build directory
 /build/
 /dist/
+
+.windsurfrules
