@@ -60,7 +60,7 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: 0
         run: |
-          go build -ldflags "-X github.com/plucury/chait/cmd.Version=${{ env.VERSION }}" -o ${{ matrix.filename }}
+          go build -ldflags "-X github.com/plucury/chait/cmd.version=${{ env.VERSION }}" -o ${{ matrix.filename }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
