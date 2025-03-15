@@ -18,7 +18,7 @@ import (
 var cfgFile string
 
 // Version represents the current version of the application
-const Version = "0.1.0"
+var version string
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
@@ -40,7 +40,11 @@ var rootCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		// Check if we need to display the version information
 		if showVersion {
-			fmt.Printf("chait version %s\n", Version)
+			if version == "" {
+				version = "undefined" // 默认版本号
+			} else {
+				fmt.Printf("chait version %s\n", version)
+			}
 			return
 		}
 
@@ -697,7 +701,7 @@ func initConfig() {
 
 			// Create default configuration
 			defaultConfig := map[string]interface{}{
-				"version":   Version,
+				"version":   1,
 				"provider":  "", // Current provider being used, empty string indicates user needs to choose
 				"providers": map[string]interface{}{},
 				"debug":     false, // Debug mode, when true prints debug logs
