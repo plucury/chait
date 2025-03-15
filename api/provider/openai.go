@@ -35,8 +35,8 @@ var openaiAvailableModels = []string{
 var openaiTemperaturePresets = []TemperaturePreset{
 	{"Code Generation", 0.0, "Code generation or math problem solving"},
 	{"Data Extraction", 0.3, "Data extraction and analysis"},
-	{"General Conversation", 0.7, "General conversation"},
 	{"Translation", 0.5, "Translation tasks"},
+	{"General Conversation", 0.7, "General conversation"},
 	{"Creative Writing", 1.0, "Creative writing or poetry"},
 }
 
@@ -117,88 +117,6 @@ type openaiErrorResponse struct {
 	Type    string `json:"type"`
 	Param   string `json:"param"`
 	Code    string `json:"code"`
-}
-
-// SendChatRequest sends a chat request to the OpenAI API
-func (p *OpenAIProvider) SendChatRequest(messages []ChatMessage) (string, error) {
-	// 检查 API Key 是否已设置
-	if p.APIKey == "" {
-		return "", fmt.Errorf("API key not set for OpenAI provider")
-	}
-
-	// 确保模型已设置，如果未设置则使用默认模型
-	if p.CurrentModel == "" {
-		p.CurrentModel = openaiDefaultModel
-		fmt.Printf("WARNING: Model not set for OpenAI provider, using default model: %s\n", openaiDefaultModel)
-	}
-
-	// 输出调试信息
-	util.DebugLog("Using OpenAI model: %s", p.CurrentModel)
-
-	// 创建请求体
-	requestBody := openaiChatRequest{
-		Model:    p.CurrentModel,
-		Messages: messages,
-	}
-
-	// Only set temperature for models that support it
-	// o1 and o3-mini models ignore temperature
-	if p.CurrentModel != "o1" && p.CurrentModel != "o3-mini" {
-		requestBody.Temperature = p.CurrentTemperature
-		util.DebugLog("Using temperature: %.1f", p.CurrentTemperature)
-	} else {
-		util.DebugLog("Temperature ignored for model %s", p.CurrentModel)
-	}
-
-	// 将请求体转换为 JSON
-	requestJSON, err := json.Marshal(requestBody)
-	util.DebugLog("Request JSON: %s", string(requestJSON))
-	if err != nil {
-		return "", fmt.Errorf("error marshaling request: %v", err)
-	}
-
-	// 创建 HTTP 请求
-	req, err := http.NewRequest("POST", openaiAPIURL, bytes.NewBuffer(requestJSON))
-	if err != nil {
-		return "", fmt.Errorf("error creating request: %v", err)
-	}
-
-	// 设置请求头
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+p.APIKey)
-
-	// 发送请求
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("error sending request: %v", err)
-	}
-	defer resp.Body.Close()
-
-	// 读取响应体
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("error reading response: %v", err)
-	}
-
-	// 解析响应
-	var chatResp openaiChatResponse
-	if err := json.Unmarshal(respBody, &chatResp); err != nil {
-		return "", fmt.Errorf("error unmarshaling response: %v", err)
-	}
-
-	// 检查是否有错误
-	if chatResp.Error != nil {
-		return "", fmt.Errorf("API error: %s", chatResp.Error.Message)
-	}
-
-	// 检查是否有响应
-	if len(chatResp.Choices) == 0 {
-		return "", fmt.Errorf("no response from API")
-	}
-
-	// 返回响应内容
-	return chatResp.Choices[0].Message.Content, nil
 }
 
 // SendStreamingChatRequest sends a streaming chat request to the OpenAI API

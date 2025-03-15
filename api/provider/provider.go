@@ -2,7 +2,7 @@ package provider
 
 import (
 	"fmt"
-	
+
 	"github.com/plucury/chait/util"
 )
 
@@ -63,9 +63,6 @@ type Provider interface {
 
 	// IsReady returns whether the provider is ready to use
 	IsReady() bool
-
-	// SendChatRequest sends a chat request to the provider's API
-	SendChatRequest(messages []ChatMessage) (string, error)
 
 	// SendStreamingChatRequest sends a chat request and returns a channel for streaming responses
 	SendStreamingChatRequest(messages []ChatMessage) (<-chan StreamResponse, error)
