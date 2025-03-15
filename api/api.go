@@ -5,6 +5,7 @@ import (
 
 	"github.com/plucury/chait/api/provider"
 	"github.com/plucury/chait/util"
+	"github.com/spf13/viper"
 )
 
 // Re-export ChatMessage from provider package
@@ -28,26 +29,36 @@ var DefaultTemperature float64
 // TemperaturePresets is the list of available temperature presets for the default provider
 var TemperaturePresets []TemperaturePreset
 
-// 当前活跃的 provider
 var activeProvider provider.Provider
 
 // Initialize default values from the default provider
 func init() {
-	// 初始化默认 provider
+	// Try to load active provider from configuration
+	providerName := DefaultProvider
+	if viper.IsSet("active_provider") {
+		configProvider := viper.GetString("active_provider")
+		if _, exists := provider.GetProvider(configProvider); exists {
+			providerName = configProvider
+			util.DebugLog("Loaded active provider from config: %s", providerName)
+		} else {
+			util.DebugLog("Provider from config not found: %s, using default: %s", configProvider, DefaultProvider)
+		}
+	}
+
+	// Initialize active provider
 	var exists bool
-	activeProvider, exists = provider.GetProvider(DefaultProvider)
+	activeProvider, exists = provider.GetProvider(providerName)
 	if !exists {
 		panic("Default provider not found")
 	}
 
-	// 初始化默认值
+	// Initialize default values
 	DefaultModel = activeProvider.GetDefaultModel()
 	AvailableModels = activeProvider.GetAvailableModels()
 	DefaultTemperature = activeProvider.GetDefaultTemperature()
 	TemperaturePresets = activeProvider.GetTemperaturePresets()
 }
 
-// LoadProviderConfig 从配置中加载 provider 配置
 func LoadProviderConfig(providerName string, config map[string]interface{}) error {
 	util.DebugLog("Loading configuration for provider: %s", providerName)
 	p, exists := provider.GetProvider(providerName)
@@ -55,7 +66,6 @@ func LoadProviderConfig(providerName string, config map[string]interface{}) erro
 		return fmt.Errorf("provider %s not found", providerName)
 	}
 
-	// 加载配置
 	if err := p.LoadConfig(config); err != nil {
 		util.DebugLog("Error loading configuration for provider %s: %v", providerName, err)
 		return err
@@ -64,24 +74,58 @@ func LoadProviderConfig(providerName string, config map[string]interface{}) erro
 	return nil
 }
 
-// SaveProviderConfig 保存 provider 配置到配置中
 func SaveProviderConfig(providerName string, config map[string]interface{}) error {
 	p, exists := provider.GetProvider(providerName)
 	if !exists {
 		return fmt.Errorf("provider %s not found", providerName)
 	}
 
-	// 保存配置
 	p.SaveConfig(config)
 	return nil
 }
 
-// GetActiveProvider 返回当前活跃的 provider
 func GetActiveProvider() provider.Provider {
 	return activeProvider
 }
 
-// SetActiveProvider 设置当前活跃的 provider
+func GetActiveProviderName() string {
+	return activeProvider.GetName()
+}
+
+func GetCurrentModel() string {
+	return activeProvider.GetCurrentModel()
+}
+
+func GetCurrentAvailableModels() []string {
+	return activeProvider.GetAvailableModels()
+}
+
+func GetCurrentTemperature() float64 {
+	return activeProvider.GetCurrentTemperature()
+}
+
+func GetCurrentTemperaturePresets() []TemperaturePreset {
+	return activeProvider.GetTemperaturePresets()
+}
+
+// SetAPIKey sets the API key for the active provider and saves it to the configuration
+func SetAPIKey(apiKey string) error {
+	err := activeProvider.SetAPIKey(apiKey)
+	if err != nil {
+		return err
+	}
+
+	viper.Set(fmt.Sprintf("providers.%s.api_key", activeProvider.GetName()), apiKey)
+
+	// Write to the configuration file
+	if err := viper.WriteConfig(); err != nil {
+		util.DebugLog("Error persisting API key to config: %v", err)
+		// Don't return error as the provider was successfully set in memory
+		// Just log the error for debugging purposes
+	}
+	return nil
+}
+
 func SetActiveProvider(providerName string) error {
 	util.DebugLog("Setting active provider to: %s", providerName)
 	p, exists := provider.GetProvider(providerName)
@@ -92,71 +136,54 @@ func SetActiveProvider(providerName string) error {
 
 	activeProvider = p
 	util.DebugLog("Active provider set to: %s", providerName)
+
+	// Persist the active provider to configuration
+	viper.Set("provider", providerName)
+
+	// Write to the configuration file
+	if err := viper.WriteConfig(); err != nil {
+		util.DebugLog("Error persisting active provider to config: %v", err)
+		// Don't return error as the provider was successfully set in memory
+		// Just log the error for debugging purposes
+	}
+
 	return nil
 }
 
-// SendChatRequest 发送聊天请求到当前活跃的 provider
-// 这个函数保持向后兼容性
-func SendChatRequest(apiKey string, messages []ChatMessage, model string, temperature float64) (string, error) {
-	util.DebugLog("Sending chat request to provider: %s", activeProvider.GetName())
-	
-	// 如果提供了 API key，设置到 provider 中
-	if apiKey != "" {
-		util.DebugLog("Setting API key for provider: %s", activeProvider.GetName())
-		activeProvider.SetAPIKey(apiKey)
+func SetProviderModel(provider provider.Provider, model string) error {
+	err := provider.SetCurrentModel(model)
+	if err != nil {
+		return fmt.Errorf("failed to set model for provider %s: %v", provider.GetName(), err)
 	}
-
-	// 如果提供了模型，设置到 provider 中
-	if model != "" {
-		util.DebugLog("Setting model for provider %s: %s", activeProvider.GetName(), model)
-		if err := activeProvider.SetCurrentModel(model); err != nil {
-			util.DebugLog("Error setting model for provider %s: %v", activeProvider.GetName(), err)
-			return "", err
-		}
+	viper.Set(fmt.Sprintf("providers.%s.model", provider.GetName()), model)
+	// Write to the configuration file
+	if err := viper.WriteConfig(); err != nil {
+		util.DebugLog("Error persisting active provider to config: %v", err)
+		// Don't return error as the provider was successfully set in memory
+		// Just log the error for debugging purposes
 	}
+	return nil
+}
 
-	// 如果提供了温度，设置到 provider 中
-	if temperature != 0 {
-		util.DebugLog("Setting temperature for provider %s: %.1f", activeProvider.GetName(), temperature)
-		if err := activeProvider.SetCurrentTemperature(temperature); err != nil {
-			util.DebugLog("Error setting temperature for provider %s: %v", activeProvider.GetName(), err)
-			return "", err
-		}
+func SetProviderTemperature(provider provider.Provider, temperature float64) error {
+	err := provider.SetCurrentTemperature(temperature)
+	if err != nil {
+		return fmt.Errorf("failed to set temperature for provider %s: %v", provider.GetName(), err)
 	}
-
-	// 发送请求
-	util.DebugLog("Sending request to %s with %d messages", activeProvider.GetName(), len(messages))
-	return activeProvider.SendChatRequest(messages)
+	viper.Set(fmt.Sprintf("providers.%s.temperature", provider.GetName()), temperature)
+	// Write to the configuration file
+	if err := viper.WriteConfig(); err != nil {
+		util.DebugLog("Error persisting active provider to config: %v", err)
+		// Don't return error as the provider was successfully set in memory
+		// Just log the error for debugging purposes
+	}
+	return nil
 }
 
 // SendStreamingChatRequest 发送流式聊天请求到当前活跃的 provider
 // 返回一个通道，用于接收流式响应
-func SendStreamingChatRequest(apiKey string, messages []ChatMessage, model string, temperature float64) (<-chan provider.StreamResponse, error) {
+func SendStreamingChatRequest(messages []ChatMessage) (<-chan provider.StreamResponse, error) {
 	util.DebugLog("Sending streaming chat request to provider: %s", activeProvider.GetName())
-	
-	// 如果提供了 API key，设置到 provider 中
-	if apiKey != "" {
-		util.DebugLog("Setting API key for provider: %s", activeProvider.GetName())
-		activeProvider.SetAPIKey(apiKey)
-	}
-
-	// 如果提供了模型，设置到 provider 中
-	if model != "" {
-		util.DebugLog("Setting model for provider %s: %s", activeProvider.GetName(), model)
-		if err := activeProvider.SetCurrentModel(model); err != nil {
-			util.DebugLog("Error setting model for provider %s: %v", activeProvider.GetName(), err)
-			return nil, err
-		}
-	}
-
-	// 如果提供了温度，设置到 provider 中
-	if temperature != 0 {
-		util.DebugLog("Setting temperature for provider %s: %.1f", activeProvider.GetName(), temperature)
-		if err := activeProvider.SetCurrentTemperature(temperature); err != nil {
-			util.DebugLog("Error setting temperature for provider %s: %v", activeProvider.GetName(), err)
-			return nil, err
-		}
-	}
 
 	// 发送流式请求
 	util.DebugLog("Sending streaming request to %s with %d messages", activeProvider.GetName(), len(messages))

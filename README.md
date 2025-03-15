@@ -18,6 +18,7 @@ cat main.go | chait "Explain this code"
 chait -i
 
 # Start interactive mode with an initial question
+# This will automatically send the question to the AI
 chait -i "Tell me about quantum computing"
 
 # Analyze a file and have a conversation about it
@@ -184,10 +185,38 @@ git diff | chait -i
 When in interactive mode, you can use these special commands:
 
 ```
-:help, :h       # Show help information
-:clear, :c      # Start a new conversation
-:model          # Switch between available models
-:temperature, :temp  # Set the temperature parameter
-:provider       # Configure or switch provider
-:quit, :q       # Exit interactive mode
+:h              # Show help information
+:c       # Start a new conversation
+:m              # Switch between available models
+:t              # Set the temperature parameter
+:p              # Configure or switch provider
+:k              # Set the API key for the current provider
+ctrl+c          # Exit interactive mode
 ```
+
+### Interactive Mode Features
+
+#### API Key Management
+- **Direct API Key Input**: If the current provider is not ready (missing API key), you'll be prompted to enter your API key directly in the interactive mode
+- **Manual API Key Setting**: Use the `:k` command to set or update the API key for the current provider at any time
+- **Persistent Configuration**: API keys are securely saved to your configuration file for future sessions
+
+#### User Interface
+- **Full-Screen Terminal UI**: Utilizes the entire terminal window for a distraction-free experience
+- **Message History**: View your entire conversation history with clear visual distinction between user and AI messages
+- **Real-Time Streaming**: See AI responses as they're generated in real-time
+- **Text Selection**: Select and copy text from the conversation using mouse or keyboard
+- **Scrolling**: Navigate through long conversations with keyboard shortcuts
+- **Visual Feedback**: Different message types (System, User, Assistant, Error) are visually distinguished
+
+#### Keyboard Navigation
+- **PageUp/PageDown**: Scroll through conversation history one page at a time
+- **Home/End**: Jump to the beginning or end of the current input
+- **Ctrl+Home/Ctrl+End**: Jump to the top or bottom of the conversation history
+- **Enter**: Send your message or confirm selection
+- **Esc**: Cancel current selection or operation
+
+#### Error Handling
+- **Clear Error Messages**: Errors are displayed with distinct formatting to help troubleshoot issues
+- **API Connection Errors**: Automatically detects and reports issues with API connections
+- **Provider Configuration**: Guides you through fixing configuration issues when they occur

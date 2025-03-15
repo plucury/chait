@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	
+
 	"github.com/plucury/chait/util"
 )
 
@@ -17,8 +17,8 @@ type DeepseekProvider struct {
 }
 
 const (
-	deepseekAPIURL     = "https://api.deepseek.com/v1/chat/completions"
-	deepseekDefaultModel = "deepseek-chat"
+	deepseekAPIURL             = "https://api.deepseek.com/v1/chat/completions"
+	deepseekDefaultModel       = "deepseek-chat"
 	deepseekDefaultTemperature = 1.0
 )
 
@@ -116,96 +116,6 @@ type errorResponse struct {
 	Code    string `json:"code"`
 }
 
-// SendChatRequest sends a chat request to the Deepseek API
-func (p *DeepseekProvider) SendChatRequest(messages []ChatMessage) (string, error) {
-	// 检查 API Key 是否已设置
-	if p.APIKey == "" {
-		return "", fmt.Errorf("API key not set for Deepseek provider")
-	}
-
-	// 创建请求体
-	requestBody := chatRequest{
-		Model:       p.CurrentModel,
-		Messages:    messages,
-		Temperature: p.CurrentTemperature,
-	}
-	
-	util.DebugLog("Using Deepseek model: %s", p.CurrentModel)
-	util.DebugLog("Using temperature: %.1f", p.CurrentTemperature)
-
-	// 将请求体序列化为 JSON
-	jsonData, err := json.Marshal(requestBody)
-	util.DebugLog("Request JSON: %s", string(jsonData))
-	if err != nil {
-		return "", fmt.Errorf("error marshaling request: %v", err)
-	}
-
-	// 创建 HTTP 请求
-	req, err := http.NewRequest("POST", deepseekAPIURL, bytes.NewBuffer(jsonData))
-	if err != nil {
-		return "", fmt.Errorf("error creating request: %v", err)
-	}
-
-	// 设置请求头
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+p.APIKey)
-
-	// 发送请求
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("error sending request: %v", err)
-	}
-	defer resp.Body.Close()
-
-	// 读取响应体
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("error reading response: %v", err)
-	}
-
-	// 检查错误状态码
-	if resp.StatusCode != http.StatusOK {
-		// 尝试解析错误响应
-		var errorResp struct {
-			Error struct {
-				Message string `json:"message"`
-				Type    string `json:"type"`
-				Code    string `json:"code"`
-			} `json:"error"`
-		}
-
-		if err := json.Unmarshal(body, &errorResp); err == nil && errorResp.Error.Message != "" {
-			// 处理特定类型的错误
-			switch {
-			case errorResp.Error.Message == "Insufficient Balance" || errorResp.Error.Code == "invalid_request_error":
-				return "", fmt.Errorf("Deepseek API account has insufficient balance. Please check your account or contact Deepseek support.")
-			case resp.StatusCode == 401:
-				return "", fmt.Errorf("Authentication failed. Please check your API key.")
-			default:
-				return "", fmt.Errorf("API error: %s (Code: %s)", errorResp.Error.Message, errorResp.Error.Code)
-			}
-		} else {
-			// 回退到通用错误消息
-			return "", fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
-		}
-	}
-
-	// 解析响应
-	var chatResp chatResponse
-	if err := json.Unmarshal(body, &chatResp); err != nil {
-		return "", fmt.Errorf("error parsing response: %v", err)
-	}
-
-	// 检查是否有选择
-	if len(chatResp.Choices) == 0 {
-		return "", fmt.Errorf("no response choices returned")
-	}
-
-	// 返回第一个选择的内容
-	return chatResp.Choices[0].Message.Content, nil
-}
-
 // SendStreamingChatRequest sends a streaming chat request to the Deepseek API
 func (p *DeepseekProvider) SendStreamingChatRequest(messages []ChatMessage) (<-chan StreamResponse, error) {
 	respChan := make(chan StreamResponse)
@@ -254,13 +164,13 @@ func (p *DeepseekProvider) SendStreamingChatRequest(messages []ChatMessage) (<-c
 		// 读取错误响应
 		respBody, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
-		
+
 		// 尝试解析错误响应
 		var errorResp chatResponse
 		if err := json.Unmarshal(respBody, &errorResp); err == nil && errorResp.Error != nil {
 			return nil, fmt.Errorf("API error: %s", errorResp.Error.Message)
 		}
-		
+
 		return nil, fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(respBody))
 	}
 
@@ -394,11 +304,11 @@ func (p *DeepseekProvider) LoadConfig(config map[string]interface{}) error {
 func (p *DeepseekProvider) SaveConfig(config map[string]interface{}) {
 	// 保存 API Key
 	config["api_key"] = p.APIKey
-	
+
 	// 保存当前模型
 	config["model"] = p.CurrentModel
 	util.DebugLog("Saving Deepseek model to config: %s", p.CurrentModel)
-	
+
 	// 保存温度设置
 	config["temperature"] = p.CurrentTemperature
 }
@@ -408,8 +318,6 @@ func (p *DeepseekProvider) SaveConfig(config map[string]interface{}) {
 func (p *DeepseekProvider) IsReady() bool {
 	return p.APIKey != ""
 }
-
-
 
 func init() {
 	// Register the Deepseek provider
