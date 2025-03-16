@@ -780,6 +780,11 @@ func (m interactiveModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Handle normal Enter key press for sending messages
 				userMsg := string(m.input)
 				if userMsg == "" {
+					m.messages = append(m.messages, Message{
+						Type:    MessageTypeChait,
+						Content: ">",
+					})
+					m.scrollToBottom()
 					return m, nil
 				}
 
