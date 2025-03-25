@@ -3,9 +3,11 @@ package cmd
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/atotto/clipboard"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/mattn/go-runewidth"
 	"github.com/plucury/chait/api"
 	"github.com/plucury/chait/api/provider"
@@ -20,6 +22,15 @@ const (
 	MessageTypeAssistant MessageType = "Assistant"
 	MessageTypeChait     MessageType = "Chait"
 	MessageTypeError     MessageType = "Error"
+)
+
+// Style definitions for different message types
+var (
+	userStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("#5e9aa4"))
+	assistantStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#5ea46b"))
+	systemStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#87CEEB"))
+	chaitStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#D3D3D3"))
+	errorStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#a45e8b"))
 )
 
 type Message struct {
@@ -166,6 +177,16 @@ func systemMessage() Message {
 	}
 }
 
+// Cursor blink tick message
+type cursorBlinkMsg struct{}
+
+// Function to generate cursor blink messages at regular intervals
+func cursorBlinker() tea.Cmd {
+	return tea.Tick(time.Millisecond*530, func(t time.Time) tea.Msg {
+		return cursorBlinkMsg{}
+	})
+}
+
 type interactiveModel struct {
 	messages    []Message
 	input       []rune
@@ -184,6 +205,9 @@ type interactiveModel struct {
 	selectionStart point  // Start position of selection
 	selectionEnd   point  // End position of selection
 	selectedText   string // The currently selected text
+
+	// Cursor blinking state
+	cursorVisible bool // Whether the cursor is currently visible
 
 	// Selector widgets
 	providerSelector    selectorWidget // Widget for selecting providers
@@ -412,7 +436,7 @@ func refreshConfig(m *interactiveModel) {
 	m.temperatureSelector.currentIndex = currentTemperatureIndex
 }
 
-func initialInteractiveModel(input string) interactiveModel {
+func initialInteractiveModel(input string) (interactiveModel, tea.Cmd) {
 	hello := helloMessage()
 
 	model := interactiveModel{
@@ -430,6 +454,9 @@ func initialInteractiveModel(input string) interactiveModel {
 		selectionStart: point{line: 0, col: 0},
 		selectionEnd:   point{line: 0, col: 0},
 		selectedText:   "",
+
+		// Initialize cursor blinking state
+		cursorVisible: true,
 
 		// Initialize provider selector widget
 		providerSelector: selectorWidget{
@@ -459,13 +486,17 @@ func initialInteractiveModel(input string) interactiveModel {
 		})
 	}
 
-	return model
+	// Return the model and the cursor blink command
+	return model, cursorBlinker()
 }
 
 func (m interactiveModel) Init() tea.Cmd {
 	// Request the terminal dimensions on startup
 	var cmds []tea.Cmd
 	cmds = append(cmds, tea.EnterAltScreen)
+
+	// Start the cursor blink timer
+	cmds = append(cmds, cursorBlinker())
 
 	// If there's a user message, automatically start streaming
 	if len(m.messages) > 2 && m.messages[len(m.messages)-1].Type == MessageTypeUser {
@@ -506,6 +537,13 @@ func (m interactiveModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	)
 
 	switch msg := msg.(type) {
+	// Handle cursor blink tick
+	case cursorBlinkMsg:
+		// Toggle cursor visibility
+		m.cursorVisible = !m.cursorVisible
+		// Continue the blinking
+		return m, cursorBlinker()
+		
 	// Handle window resize events
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -557,9 +595,6 @@ func (m interactiveModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			Type:    MessageTypeAssistant,
 			Content: m.messages[lastIdx].Content + msg.Content,
 		}
-
-		// Auto-scroll to bottom when receiving new content
-		m.scrollToBottom()
 
 		// If not done, continue processing the stream
 		if !msg.Done {
@@ -949,22 +984,56 @@ func (m interactiveModel) formatMessages() string {
 
 		prefixLen := 0
 		typeStr := ""
-		if msg.Type == MessageTypeUser {
-			typeStr = "> "
-		} else if msg.Type != MessageTypeChait {
-			typeStr = string(msg.Type) + ": "
-		}
-		buf.WriteString(typeStr)
-		prefixLen = len(typeStr)
+		var content string
 
-		// Handle text wrapping for the content
-		if m.width > 0 {
-			wrappedContent := wrapText(msg.Content, m.width, prefixLen)
-			buf.WriteString(wrappedContent)
-		} else {
-			// Fallback if width is not available
-			buf.WriteString(msg.Content)
+		// Format content based on message type
+		switch msg.Type {
+		case MessageTypeUser:
+			typeStr = "> "
+			prefixLen = len(typeStr)
+			// Handle text wrapping for the content
+			if m.width > 0 {
+				content = typeStr + wrapText(msg.Content, m.width, prefixLen)
+			} else {
+				content = typeStr + msg.Content
+			}
+		case MessageTypeAssistant:
+			typeStr = string(msg.Type) + ": "
+			prefixLen = len(typeStr)
+			// Handle text wrapping for the content
+			if m.width > 0 {
+				content = typeStr + wrapText(msg.Content, m.width, prefixLen)
+			} else {
+				content = typeStr + msg.Content
+			}
+		case MessageTypeSystem:
+			typeStr = string(msg.Type) + ": "
+			prefixLen = len(typeStr)
+			// Handle text wrapping for the content
+			if m.width > 0 {
+				content = typeStr + wrapText(msg.Content, m.width, prefixLen)
+			} else {
+				content = typeStr + msg.Content
+			}
+		case MessageTypeChait:
+			// Chait messages don't have a prefix
+			if m.width > 0 {
+				content = wrapText(msg.Content, m.width, 0)
+			} else {
+				content = msg.Content
+			}
+		case MessageTypeError:
+			typeStr = string(msg.Type) + ": "
+			prefixLen = len(typeStr)
+			// Handle text wrapping for the content
+			if m.width > 0 {
+				content = typeStr + wrapText(msg.Content, m.width, prefixLen)
+			} else {
+				content = typeStr + msg.Content
+			}
 		}
+
+		buf.WriteString(content)
 	}
 	return buf.String()
 }
@@ -1043,10 +1112,72 @@ func findBreakPoint(runes []rune, width int) int {
 	return pos
 }
 
-// Get the total number of lines in the formatted messages
+// Get the total number of lines in the formatted messages along with their message types
 func (m interactiveModel) getFormattedMessageLines() []string {
 	formatted := m.formatMessages()
 	return strings.Split(formatted, "\n")
+}
+
+// Get message type for each line in the formatted messages
+func (m interactiveModel) getMessageTypesForLines() []MessageType {
+	// First, get all lines
+	allLines := m.getFormattedMessageLines()
+
+	// Create a slice to store the message type for each line
+	messageTypes := make([]MessageType, len(allLines))
+
+	// Track current message and line within message
+	currentMsgIndex := 0
+	linesInCurrentMsg := 0
+
+	// Initialize with first message type
+	currentType := MessageTypeChait
+	if len(m.messages) > 0 {
+		currentType = m.messages[0].Type
+	}
+
+	// Process each line
+	for i, line := range allLines {
+		// Check if this is a new message by looking for message type prefixes
+		if strings.HasPrefix(line, "> ") {
+			currentType = MessageTypeUser
+			currentMsgIndex++
+			linesInCurrentMsg = 0
+		} else if strings.HasPrefix(line, "Assistant: ") {
+			currentType = MessageTypeAssistant
+			currentMsgIndex++
+			linesInCurrentMsg = 0
+		} else if strings.HasPrefix(line, "System: ") {
+			currentType = MessageTypeSystem
+			currentMsgIndex++
+			linesInCurrentMsg = 0
+		} else if strings.HasPrefix(line, "Error: ") {
+			currentType = MessageTypeError
+			currentMsgIndex++
+			linesInCurrentMsg = 0
+		} else if strings.TrimSpace(line) == "" {
+			// Empty line - check if it's between messages
+			if i+1 < len(allLines) {
+				nextLine := allLines[i+1]
+				if strings.HasPrefix(nextLine, "> ") ||
+					strings.HasPrefix(nextLine, "Assistant: ") ||
+					strings.HasPrefix(nextLine, "System: ") ||
+					strings.HasPrefix(nextLine, "Error: ") {
+					// This is a separator between messages
+					currentType = MessageTypeChait
+				}
+			}
+			linesInCurrentMsg++
+		} else {
+			// Continuation line
+			linesInCurrentMsg++
+		}
+
+		// Store the message type for this line
+		messageTypes[i] = currentType
+	}
+
+	return messageTypes
 }
 
 // Scroll handling methods
@@ -1139,15 +1270,38 @@ func (m interactiveModel) View() string {
 		}
 	}
 
+	// Get message types for all lines in the entire conversation
+	allMessageTypes := m.getMessageTypesForLines()
+
 	// Render only the visible portion of messages
 	for i := startLine; i < endLine; i++ {
 		if i < len(allLines) {
 			line := allLines[i]
 
+			// Apply appropriate style based on the message type
+			var styledLine string
+			if i < len(allMessageTypes) {
+				switch allMessageTypes[i] {
+				case MessageTypeUser:
+					styledLine = userStyle.Render(line)
+				case MessageTypeAssistant:
+					styledLine = assistantStyle.Render(line)
+				case MessageTypeSystem:
+					styledLine = systemStyle.Render(line)
+				case MessageTypeError:
+					styledLine = errorStyle.Render(line)
+				default: // MessageTypeChait
+					styledLine = chaitStyle.Render(line)
+				}
+			} else {
+				// Fallback if for some reason we don't have a message type
+				styledLine = chaitStyle.Render(line)
+			}
+
 			// Check if this line is part of the selection
 			if hasSelection && i >= selStart.line && i <= selEnd.line {
 				// This line has some selection
-				lineRunes := []rune(line)
+				lineRunes := []rune(line) // Use the original unstyled line for selection
 
 				// Determine selection start and end rune indices for this line
 				startIdx, endIdx := 0, len(lineRunes)
@@ -1172,25 +1326,48 @@ func (m interactiveModel) View() string {
 					endIdx = len(lineRunes)
 				}
 
-				// Render the line with highlighted selection
+				// Get the appropriate style for this line
+				var style lipgloss.Style
+				if i < len(allMessageTypes) {
+					switch allMessageTypes[i] {
+					case MessageTypeUser:
+						style = userStyle
+					case MessageTypeAssistant:
+						style = assistantStyle
+					case MessageTypeSystem:
+						style = systemStyle
+					case MessageTypeError:
+						style = errorStyle
+					default: // MessageTypeChait
+						style = chaitStyle
+					}
+				} else {
+					style = chaitStyle // Default fallback
+				}
+
+				// Render the line with highlighted selection while preserving colors
 				if startIdx < endIdx {
-					// Write the part before selection
-					sb.WriteString(string(lineRunes[:startIdx]))
+					// Part before selection - apply appropriate style
+					if startIdx > 0 {
+						sb.WriteString(style.Render(string(lineRunes[:startIdx])))
+					}
 
-					// Write the selected part with reverse video (highlighted)
-					sb.WriteString("\x1b[7m") // Terminal escape code for reverse video
-					sb.WriteString(string(lineRunes[startIdx:endIdx]))
-					sb.WriteString("\x1b[0m") // Reset formatting
+					// Selected part - use reverse video highlighting
+					// We need to apply both the style and the reverse video
+					highlightStyle := style.Copy().Reverse(true)
+					sb.WriteString(highlightStyle.Render(string(lineRunes[startIdx:endIdx])))
 
-					// Write the part after selection
-					sb.WriteString(string(lineRunes[endIdx:]))
+					// Part after selection - apply appropriate style
+					if endIdx < len(lineRunes) {
+						sb.WriteString(style.Render(string(lineRunes[endIdx:])))
+					}
 				} else {
 					// No selection on this line (can happen due to bounds checking)
-					sb.WriteString(line)
+					sb.WriteString(styledLine)
 				}
 			} else {
 				// No selection on this line
-				sb.WriteString(line)
+				sb.WriteString(styledLine)
 			}
 
 			sb.WriteString("\n")
@@ -1208,23 +1385,39 @@ func (m interactiveModel) View() string {
 	// Only show input prompt when at the bottom of the conversation
 	if m.enableInput && isAtBottom {
 
-		// Render the input with cursor
+		// Render the input with blinking cursor
 		inputBeforeCursor := string(m.input[:m.cursor])
 		inputAfterCursor := string(m.input[m.cursor:])
 		input.WriteString(inputBeforeCursor)
-		input.WriteString("|")
+		
+		// Show or hide cursor based on blink state
+		if m.cursorVisible {
+			input.WriteString("|")
+		} else {
+			// When cursor is invisible, we use a space to maintain consistent layout
+			// Only add space if we're not at the end of a line to avoid extra wrapping
+			if len(inputAfterCursor) > 0 {
+				input.WriteString(" ")
+			}
+		}
+		
 		input.WriteString(inputAfterCursor)
 
-		sb.WriteString("\n> ")
-		sb.WriteString(wrapText(input.String(), m.width, 2))
+		// Apply userStyle to the input area to match user message color
+		inputText := "> " + wrapText(input.String(), m.width, 2)
+		sb.WriteString("\n")
+		sb.WriteString(userStyle.Render(inputText))
 	}
 
 	return sb.String()
 }
 
 func StartInteractiveMode(input string) error {
+	// Get the initial model and commands
+	initialModel, _ := initialInteractiveModel(input)
+
 	p := tea.NewProgram(
-		initialInteractiveModel(input),
+		initialModel,
 		tea.WithAltScreen(),       // Use the full terminal in alternate screen mode
 		tea.WithMouseAllMotion(),  // Enable mouse support for all motion
 		tea.WithMouseCellMotion(), // Enable mouse cell motion events
