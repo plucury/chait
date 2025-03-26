@@ -38,6 +38,11 @@ type Message struct {
 	Content string
 }
 
+type messageWithType struct {
+	Type    MessageType
+	Content string
+}
+
 func (m Message) ToChatMessage() provider.ChatMessage {
 	return provider.ChatMessage{
 		Role:    strings.ToLower(string(m.Type)),
@@ -213,6 +218,8 @@ type interactiveModel struct {
 	providerSelector    selectorWidget // Widget for selecting providers
 	modelSelector       selectorWidget // Widget for selecting models
 	temperatureSelector selectorWidget // Widget for selecting temperature presets
+
+	autoScrollBottom bool
 }
 
 func (m interactiveModel) getSystemMessage() provider.ChatMessage {
@@ -296,7 +303,7 @@ func (m *interactiveModel) updateSelectedText() {
 			break
 		}
 
-		line := allLines[i]
+		line := allLines[i].Content
 		lineRunes := []rune(line)
 
 		// Handle single line selection
@@ -475,6 +482,7 @@ func initialInteractiveModel(input string) (interactiveModel, tea.Cmd) {
 			title:    "Select a temperature preset",
 			isActive: false,
 		},
+		autoScrollBottom: true,
 	}
 
 	refreshConfig(&model)
@@ -543,7 +551,7 @@ func (m interactiveModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.cursorVisible = !m.cursorVisible
 		// Continue the blinking
 		return m, cursorBlinker()
-		
+
 	// Handle window resize events
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -575,6 +583,7 @@ func (m interactiveModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// Store the response channel in the model
 		m.respChan = respChan
+		m.autoScrollBottom = true
 		return m, processStreamResponse(respChan)
 
 	case streamResponseMsg:
@@ -596,6 +605,11 @@ func (m interactiveModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			Content: m.messages[lastIdx].Content + msg.Content,
 		}
 
+		// Scroll to bottom if autoScrollBottom is enabled
+		if m.autoScrollBottom {
+			m.scrollToBottom()
+		}
+
 		// If not done, continue processing the stream
 		if !msg.Done {
 			// Continue processing the stream with the channel stored in the model
@@ -611,6 +625,7 @@ func (m interactiveModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch mouseEvent.Button {
 		case tea.MouseButtonWheelUp:
 			m.scrollUp(3) // Scroll up 3 lines per wheel tick
+			m.autoScrollBottom = false
 			return m, nil
 		case tea.MouseButtonWheelDown:
 			m.scrollDown(3) // Scroll down 3 lines per wheel tick
@@ -621,7 +636,7 @@ func (m interactiveModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case tea.MouseActionPress:
 				// Start selection
 				m.selecting = true
-
+				m.autoScrollBottom = false
 				// Calculate the position in the text based on mouse coordinates
 				// Adjust for scroll position
 				linePos := mouseEvent.Y + m.scrollPos
@@ -697,6 +712,7 @@ func (m interactiveModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "pgup":
 			m.scrollPageUp()
+			m.autoScrollBottom = false
 			return m, nil
 		case "pgdown":
 			m.scrollPageDown()
@@ -729,6 +745,7 @@ func (m interactiveModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "home":
 			m.scrollToTop()
+			m.autoScrollBottom = false
 			return m, nil
 		case "end":
 			m.scrollToBottom()
@@ -974,12 +991,12 @@ func (m interactiveModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // Format messages with proper wrapping for the viewport
-func (m interactiveModel) formatMessages() string {
-	var buf strings.Builder
+func (m interactiveModel) formatMessages() []messageWithType {
+	var messages []messageWithType = make([]messageWithType, 2*len(m.messages)-1)
 	for i, msg := range m.messages {
 		// Add a separator between messages except for the first one
 		if i > 0 {
-			buf.WriteString("\n\n")
+			messages = append(messages, messageWithType{Type: MessageTypeChait, Content: "\n"})
 		}
 
 		prefixLen := 0
@@ -1033,9 +1050,9 @@ func (m interactiveModel) formatMessages() string {
 			}
 		}
 
-		buf.WriteString(content)
+		messages = append(messages, messageWithType{Type: msg.Type, Content: content})
 	}
-	return buf.String()
+	return messages
 }
 
 // Wrap text to fit within the terminal width
@@ -1113,71 +1130,17 @@ func findBreakPoint(runes []rune, width int) int {
 }
 
 // Get the total number of lines in the formatted messages along with their message types
-func (m interactiveModel) getFormattedMessageLines() []string {
-	formatted := m.formatMessages()
-	return strings.Split(formatted, "\n")
-}
+func (m interactiveModel) getFormattedMessageLines() []messageWithType {
+	messages := m.formatMessages()
+	splittedMessages := make([]messageWithType, 0)
 
-// Get message type for each line in the formatted messages
-func (m interactiveModel) getMessageTypesForLines() []MessageType {
-	// First, get all lines
-	allLines := m.getFormattedMessageLines()
-
-	// Create a slice to store the message type for each line
-	messageTypes := make([]MessageType, len(allLines))
-
-	// Track current message and line within message
-	currentMsgIndex := 0
-	linesInCurrentMsg := 0
-
-	// Initialize with first message type
-	currentType := MessageTypeChait
-	if len(m.messages) > 0 {
-		currentType = m.messages[0].Type
-	}
-
-	// Process each line
-	for i, line := range allLines {
-		// Check if this is a new message by looking for message type prefixes
-		if strings.HasPrefix(line, "> ") {
-			currentType = MessageTypeUser
-			currentMsgIndex++
-			linesInCurrentMsg = 0
-		} else if strings.HasPrefix(line, "Assistant: ") {
-			currentType = MessageTypeAssistant
-			currentMsgIndex++
-			linesInCurrentMsg = 0
-		} else if strings.HasPrefix(line, "System: ") {
-			currentType = MessageTypeSystem
-			currentMsgIndex++
-			linesInCurrentMsg = 0
-		} else if strings.HasPrefix(line, "Error: ") {
-			currentType = MessageTypeError
-			currentMsgIndex++
-			linesInCurrentMsg = 0
-		} else if strings.TrimSpace(line) == "" {
-			// Empty line - check if it's between messages
-			if i+1 < len(allLines) {
-				nextLine := allLines[i+1]
-				if strings.HasPrefix(nextLine, "> ") ||
-					strings.HasPrefix(nextLine, "Assistant: ") ||
-					strings.HasPrefix(nextLine, "System: ") ||
-					strings.HasPrefix(nextLine, "Error: ") {
-					// This is a separator between messages
-					currentType = MessageTypeChait
-				}
-			}
-			linesInCurrentMsg++
-		} else {
-			// Continuation line
-			linesInCurrentMsg++
+	for _, msg := range messages {
+		for _, line := range strings.Split(msg.Content, "\n") {
+			splittedMessages = append(splittedMessages, messageWithType{Type: msg.Type, Content: line})
 		}
-
-		// Store the message type for this line
-		messageTypes[i] = currentType
 	}
 
-	return messageTypes
+	return splittedMessages
 }
 
 // Scroll handling methods
@@ -1270,9 +1233,6 @@ func (m interactiveModel) View() string {
 		}
 	}
 
-	// Get message types for all lines in the entire conversation
-	allMessageTypes := m.getMessageTypesForLines()
-
 	// Render only the visible portion of messages
 	for i := startLine; i < endLine; i++ {
 		if i < len(allLines) {
@@ -1280,28 +1240,23 @@ func (m interactiveModel) View() string {
 
 			// Apply appropriate style based on the message type
 			var styledLine string
-			if i < len(allMessageTypes) {
-				switch allMessageTypes[i] {
-				case MessageTypeUser:
-					styledLine = userStyle.Render(line)
-				case MessageTypeAssistant:
-					styledLine = assistantStyle.Render(line)
-				case MessageTypeSystem:
-					styledLine = systemStyle.Render(line)
-				case MessageTypeError:
-					styledLine = errorStyle.Render(line)
-				default: // MessageTypeChait
-					styledLine = chaitStyle.Render(line)
-				}
-			} else {
-				// Fallback if for some reason we don't have a message type
-				styledLine = chaitStyle.Render(line)
+			switch line.Type {
+			case MessageTypeUser:
+				styledLine = userStyle.Render(line.Content)
+			case MessageTypeAssistant:
+				styledLine = assistantStyle.Render(line.Content)
+			case MessageTypeSystem:
+				styledLine = systemStyle.Render(line.Content)
+			case MessageTypeError:
+				styledLine = errorStyle.Render(line.Content)
+			default: // MessageTypeChait
+				styledLine = chaitStyle.Render(line.Content)
 			}
 
 			// Check if this line is part of the selection
 			if hasSelection && i >= selStart.line && i <= selEnd.line {
 				// This line has some selection
-				lineRunes := []rune(line) // Use the original unstyled line for selection
+				lineRunes := []rune(line.Content) // Use the original unstyled line for selection
 
 				// Determine selection start and end rune indices for this line
 				startIdx, endIdx := 0, len(lineRunes)
@@ -1328,21 +1283,17 @@ func (m interactiveModel) View() string {
 
 				// Get the appropriate style for this line
 				var style lipgloss.Style
-				if i < len(allMessageTypes) {
-					switch allMessageTypes[i] {
-					case MessageTypeUser:
-						style = userStyle
-					case MessageTypeAssistant:
-						style = assistantStyle
-					case MessageTypeSystem:
-						style = systemStyle
-					case MessageTypeError:
-						style = errorStyle
-					default: // MessageTypeChait
-						style = chaitStyle
-					}
-				} else {
-					style = chaitStyle // Default fallback
+				switch line.Type {
+				case MessageTypeUser:
+					style = userStyle
+				case MessageTypeAssistant:
+					style = assistantStyle
+				case MessageTypeSystem:
+					style = systemStyle
+				case MessageTypeError:
+					style = errorStyle
+				default: // MessageTypeChait
+					style = chaitStyle
 				}
 
 				// Render the line with highlighted selection while preserving colors
@@ -1389,7 +1340,7 @@ func (m interactiveModel) View() string {
 		inputBeforeCursor := string(m.input[:m.cursor])
 		inputAfterCursor := string(m.input[m.cursor:])
 		input.WriteString(inputBeforeCursor)
-		
+
 		// Show or hide cursor based on blink state
 		if m.cursorVisible {
 			input.WriteString("|")
@@ -1400,7 +1351,7 @@ func (m interactiveModel) View() string {
 				input.WriteString(" ")
 			}
 		}
-		
+
 		input.WriteString(inputAfterCursor)
 
 		// Apply userStyle to the input area to match user message color

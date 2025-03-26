@@ -18,7 +18,7 @@ import (
 var cfgFile string
 
 // Version represents the current version of the application
-var version string = "0.2.3"
+var version string = "0.2.4"
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
