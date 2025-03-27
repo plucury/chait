@@ -583,7 +583,14 @@ func (m interactiveModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// Store the response channel in the model
 		m.respChan = respChan
-		m.autoScrollBottom = true
+		
+		// Check if we need to auto-scroll
+		allLines := m.getFormattedMessageLines()
+		visibleHeight := m.height - 3 // Reserve space for input area
+		
+		// Only set autoScrollBottom if content exceeds visible area
+		m.autoScrollBottom = len(allLines) > visibleHeight
+		
 		return m, processStreamResponse(respChan)
 
 	case streamResponseMsg:
@@ -605,7 +612,17 @@ func (m interactiveModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			Content: m.messages[lastIdx].Content + msg.Content,
 		}
 
-		// Scroll to bottom if autoScrollBottom is enabled
+		// Re-evaluate if auto-scrolling is needed as content grows
+		allLines := m.getFormattedMessageLines()
+		visibleHeight := m.height - 3 // Reserve space for input area
+		
+		// Check if content now exceeds visible area
+		if len(allLines) > visibleHeight {
+			// Content now exceeds visible area, enable auto-scrolling
+			m.autoScrollBottom = true
+		}
+		
+		// Auto-scroll if enabled
 		if m.autoScrollBottom {
 			m.scrollToBottom()
 		}
@@ -629,6 +646,20 @@ func (m interactiveModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case tea.MouseButtonWheelDown:
 			m.scrollDown(3) // Scroll down 3 lines per wheel tick
+			
+			// Check if we've scrolled to the bottom
+			allLines := m.getFormattedMessageLines()
+			visibleHeight := m.height - 3 // Reserve space for input area
+			maxScroll := len(allLines) - visibleHeight
+			if maxScroll < 0 {
+				maxScroll = 0
+			}
+			
+			// Only re-enable auto-scrolling if we've manually scrolled all the way to the bottom
+			if m.scrollPos >= maxScroll {
+				m.autoScrollBottom = true
+			}
+			
 			return m, nil
 		case tea.MouseButtonLeft:
 			// Handle text selection
@@ -716,6 +747,20 @@ func (m interactiveModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "pgdown":
 			m.scrollPageDown()
+			
+			// Check if we've scrolled to the bottom
+			allLines := m.getFormattedMessageLines()
+			visibleHeight := m.height - 3 // Reserve space for input area
+			maxScroll := len(allLines) - visibleHeight
+			if maxScroll < 0 {
+				maxScroll = 0
+			}
+			
+			// Only re-enable auto-scrolling if we've manually scrolled all the way to the bottom
+			if m.scrollPos >= maxScroll {
+				m.autoScrollBottom = true
+			}
+			
 			return m, nil
 		case "up":
 			// Handle Up key for all selectors
@@ -749,6 +794,8 @@ func (m interactiveModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "end":
 			m.scrollToBottom()
+			// Re-enable auto-scrolling when manually scrolling to the bottom
+			m.autoScrollBottom = true
 			return m, nil
 		case "alt+enter":
 			newInput := make([]rune, len(m.input)+1)
@@ -777,7 +824,7 @@ func (m interactiveModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.temperatureSelector.deactivate()
 				refreshConfig(&m)
 				return m, nil
-			} else if m.respChan != nil {
+			} else if !m.enableInput {
 				// If streaming is in progress, cancel it and reset
 				m.respChan = nil
 				m.enableInput = true
@@ -832,11 +879,8 @@ func (m interactiveModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Handle normal Enter key press for sending messages
 				userMsg := string(m.input)
 				if userMsg == "" {
-					m.messages = append(m.messages, Message{
-						Type:    MessageTypeChait,
-						Content: ">",
-					})
-					m.scrollToBottom()
+					// Don't add empty messages to avoid API errors
+					// Just return the current model without changes
 					return m, nil
 				}
 
@@ -848,7 +892,15 @@ func (m interactiveModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.input = []rune{}
 				m.cursor = 0
 
-				// Auto-scroll to bottom when sending a new message
+				// Check if we need to auto-scroll
+				allLines := m.getFormattedMessageLines()
+				visibleHeight := m.height - 3 // Reserve space for input area
+				
+				// Only set autoScrollBottom if content exceeds visible area
+				if len(allLines) > visibleHeight {
+					m.autoScrollBottom = true
+				}
+				
 				m.scrollToBottom()
 				m.enableInput = false
 
@@ -886,21 +938,6 @@ func (m interactiveModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeySpace:
 			m.input = append(m.input, ' ')
 			m.cursor++
-		// case tea.KeyCtrlV:
-		// 	pastedText, err := clipboard.ReadAll()
-		// 	if err == nil && pastedText != "" {
-		// 		// Convert processed text to runes to handle Unicode correctly
-		// 		processedRunes := []rune(pastedText)
-
-		// 		// Insert pasted text at cursor position
-		// 		newInput := make([]rune, len(m.input)+len(processedRunes))
-		// 		copy(newInput, m.input[:m.cursor])
-		// 		copy(newInput[m.cursor:], processedRunes)
-		// 		copy(newInput[m.cursor+len(processedRunes):], m.input[m.cursor:])
-		// 		m.input = newInput
-		// 		m.cursor += len(processedRunes)
-		// 		return m, nil
-		// 	}
 
 		case tea.KeyRunes:
 
@@ -992,12 +1029,8 @@ func (m interactiveModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // Format messages with proper wrapping for the viewport
 func (m interactiveModel) formatMessages() []messageWithType {
-	var messages []messageWithType = make([]messageWithType, 2*len(m.messages)-1)
-	for i, msg := range m.messages {
-		// Add a separator between messages except for the first one
-		if i > 0 {
-			messages = append(messages, messageWithType{Type: MessageTypeChait, Content: "\n"})
-		}
+	var messages []messageWithType = make([]messageWithType, 0, len(m.messages))
+	for _, msg := range m.messages {
 
 		prefixLen := 0
 		typeStr := ""
@@ -1023,6 +1056,7 @@ func (m interactiveModel) formatMessages() []messageWithType {
 			} else {
 				content = typeStr + msg.Content
 			}
+			content += "\n"
 		case MessageTypeSystem:
 			typeStr = string(msg.Type) + ": "
 			prefixLen = len(typeStr)
@@ -1178,11 +1212,15 @@ func (m *interactiveModel) scrollToTop() {
 
 func (m *interactiveModel) scrollToBottom() {
 	allLines := m.getFormattedMessageLines()
-	maxScroll := len(allLines) - (m.height - 3) // Reserve space for input area
-	if maxScroll < 0 {
-		maxScroll = 0
+	visibleHeight := m.height - 3 // Reserve space for input area
+	
+	// Only scroll if content exceeds visible area
+	if len(allLines) > visibleHeight {
+		m.scrollPos = len(allLines) - visibleHeight
+	} else {
+		// If content fits in window, don't scroll
+		m.scrollPos = 0
 	}
-	m.scrollPos = maxScroll
 }
 
 func (m interactiveModel) View() string {
@@ -1356,7 +1394,6 @@ func (m interactiveModel) View() string {
 
 		// Apply userStyle to the input area to match user message color
 		inputText := "> " + wrapText(input.String(), m.width, 2)
-		sb.WriteString("\n")
 		sb.WriteString(userStyle.Render(inputText))
 	}
 
