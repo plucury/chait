@@ -583,14 +583,6 @@ func (m interactiveModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// Store the response channel in the model
 		m.respChan = respChan
-		
-		// Check if we need to auto-scroll
-		allLines := m.getFormattedMessageLines()
-		visibleHeight := m.height - 3 // Reserve space for input area
-		
-		// Only set autoScrollBottom if content exceeds visible area
-		m.autoScrollBottom = len(allLines) > visibleHeight
-		
 		return m, processStreamResponse(respChan)
 
 	case streamResponseMsg:
@@ -612,16 +604,6 @@ func (m interactiveModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			Content: m.messages[lastIdx].Content + msg.Content,
 		}
 
-		// Re-evaluate if auto-scrolling is needed as content grows
-		allLines := m.getFormattedMessageLines()
-		visibleHeight := m.height - 3 // Reserve space for input area
-		
-		// Check if content now exceeds visible area
-		if len(allLines) > visibleHeight {
-			// Content now exceeds visible area, enable auto-scrolling
-			m.autoScrollBottom = true
-		}
-		
 		// Auto-scroll if enabled
 		if m.autoScrollBottom {
 			m.scrollToBottom()
@@ -646,7 +628,7 @@ func (m interactiveModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case tea.MouseButtonWheelDown:
 			m.scrollDown(3) // Scroll down 3 lines per wheel tick
-			
+
 			// Check if we've scrolled to the bottom
 			allLines := m.getFormattedMessageLines()
 			visibleHeight := m.height - 3 // Reserve space for input area
@@ -654,12 +636,12 @@ func (m interactiveModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if maxScroll < 0 {
 				maxScroll = 0
 			}
-			
+
 			// Only re-enable auto-scrolling if we've manually scrolled all the way to the bottom
 			if m.scrollPos >= maxScroll {
 				m.autoScrollBottom = true
 			}
-			
+
 			return m, nil
 		case tea.MouseButtonLeft:
 			// Handle text selection
@@ -747,7 +729,7 @@ func (m interactiveModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "pgdown":
 			m.scrollPageDown()
-			
+
 			// Check if we've scrolled to the bottom
 			allLines := m.getFormattedMessageLines()
 			visibleHeight := m.height - 3 // Reserve space for input area
@@ -755,12 +737,12 @@ func (m interactiveModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if maxScroll < 0 {
 				maxScroll = 0
 			}
-			
+
 			// Only re-enable auto-scrolling if we've manually scrolled all the way to the bottom
 			if m.scrollPos >= maxScroll {
 				m.autoScrollBottom = true
 			}
-			
+
 			return m, nil
 		case "up":
 			// Handle Up key for all selectors
@@ -876,8 +858,14 @@ func (m interactiveModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.cursor = 0
 				return m, nil
 			} else {
+				m.scrollToBottom()
+				if !m.enableInput {
+					m.autoScrollBottom = true
+					return m, nil
+				}
 				// Handle normal Enter key press for sending messages
 				userMsg := string(m.input)
+
 				if userMsg == "" {
 					// Don't add empty messages to avoid API errors
 					// Just return the current model without changes
@@ -892,16 +880,7 @@ func (m interactiveModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.input = []rune{}
 				m.cursor = 0
 
-				// Check if we need to auto-scroll
-				allLines := m.getFormattedMessageLines()
-				visibleHeight := m.height - 3 // Reserve space for input area
-				
-				// Only set autoScrollBottom if content exceeds visible area
-				if len(allLines) > visibleHeight {
-					m.autoScrollBottom = true
-				}
-				
-				m.scrollToBottom()
+				m.autoScrollBottom = true
 				m.enableInput = false
 
 				// Return command to start streaming chat request
@@ -1179,6 +1158,9 @@ func (m interactiveModel) getFormattedMessageLines() []messageWithType {
 
 // Scroll handling methods
 func (m *interactiveModel) scrollUp(lines int) {
+	if !m.enableInput {
+		m.autoScrollBottom = false
+	}
 	m.scrollPos -= lines
 	if m.scrollPos < 0 {
 		m.scrollPos = 0
@@ -1199,6 +1181,9 @@ func (m *interactiveModel) scrollDown(lines int) {
 }
 
 func (m *interactiveModel) scrollPageUp() {
+	if !m.enableInput {
+		m.autoScrollBottom = false
+	}
 	m.scrollUp(m.height / 2)
 }
 
@@ -1207,13 +1192,16 @@ func (m *interactiveModel) scrollPageDown() {
 }
 
 func (m *interactiveModel) scrollToTop() {
+	if !m.enableInput {
+		m.autoScrollBottom = false
+	}
 	m.scrollPos = 0
 }
 
 func (m *interactiveModel) scrollToBottom() {
 	allLines := m.getFormattedMessageLines()
 	visibleHeight := m.height - 3 // Reserve space for input area
-	
+
 	// Only scroll if content exceeds visible area
 	if len(allLines) > visibleHeight {
 		m.scrollPos = len(allLines) - visibleHeight
